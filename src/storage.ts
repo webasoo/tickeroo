@@ -13,7 +13,25 @@ export async function readData(
   try {
     const bytes = await vscode.workspace.fs.readFile(file);
     const text = Buffer.from(bytes).toString("utf8");
-    return JSON.parse(text) as TimeTrackerData;
+    try {
+      return JSON.parse(text) as TimeTrackerData;
+    } catch (err) {
+      // If the main file is corrupted, attempt to read a backup .bak file
+      try {
+        const bakFile = vscode.Uri.joinPath(
+          getStoragePaths(context, projectPathHint).folder,
+          DATA_FILE_NAME + ".bak"
+        );
+        const bakBytes = await vscode.workspace.fs.readFile(bakFile);
+        const bakText = Buffer.from(bakBytes).toString("utf8");
+        const bakData = JSON.parse(bakText) as TimeTrackerData;
+        console.warn("time-tracker: main data corrupted, recovered from backup");
+        return bakData;
+      } catch (e) {
+        console.error("time-tracker: failed to parse data and no valid backup found", e);
+        return { projects: {} } as TimeTrackerData;
+      }
+    }
   } catch (err) {
     return { projects: {} } as TimeTrackerData;
   }
