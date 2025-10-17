@@ -1,0 +1,59 @@
+{
+  "name": "local-project-time-tracker",
+  "displayName": "Local Project Time Tracker",
+  "description": "Automatically track working time on local projects inside VS Code.",
+  "version": "0.0.1",
+  "publisher": "your-name",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*",
+    "onCommand:timeTracker.startTimer",
+    "onCommand:timeTracker.stopTimer",
+    "onCommand:timeTracker.switchTask",
+    "onCommand:timeTracker.showReport",
+    "onCommand:timeTracker.showStatusMenu"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "timeTracker.startTimer",
+        "title": "Start Timer"
+      },
+      {
+        "command": "timeTracker.stopTimer",
+        "title": "Stop Timer"
+      },
+      {
+        "command": "timeTracker.switchTask",
+        "title": "Switch Task"
+      },
+      {
+        "command": "timeTracker.showReport",
+        "title": "Show Report"
+      },
+      {
+        "command": "timeTracker.showStatusMenu",
+        "title": "Time Tracker: Status Menu"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.60.0",
+    "typescript": "^4.9.0",
+    "@vscode/test-electron": "^2.3.0"
+  }
+}
