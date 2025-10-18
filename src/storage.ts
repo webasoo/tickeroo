@@ -25,10 +25,15 @@ export async function readData(
         const bakBytes = await vscode.workspace.fs.readFile(bakFile);
         const bakText = Buffer.from(bakBytes).toString("utf8");
         const bakData = JSON.parse(bakText) as TimeTrackerData;
-        console.warn("time-tracker: main data corrupted, recovered from backup");
+        console.warn(
+          "time-tracker: main data corrupted, recovered from backup"
+        );
         return bakData;
       } catch (e) {
-        console.error("time-tracker: failed to parse data and no valid backup found", e);
+        console.error(
+          "time-tracker: failed to parse data and no valid backup found",
+          e
+        );
         return { projects: {} } as TimeTrackerData;
       }
     }
@@ -71,7 +76,10 @@ export async function writeData(
         await vscode.workspace.fs.copy(tempFile, file, { overwrite: true });
         await vscode.workspace.fs.delete(tempFile);
       } catch (e) {
-        console.error("Failed to finalize atomic write for time-tracker data", e);
+        console.error(
+          "Failed to finalize atomic write for time-tracker data",
+          e
+        );
       }
     }
   } catch (err) {

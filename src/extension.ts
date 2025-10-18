@@ -240,30 +240,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  let pendingAutoStop: NodeJS.Timeout | null = null;
-  const clearPendingAutoStop = () => {
-    if (pendingAutoStop) {
-      clearTimeout(pendingAutoStop);
-      pendingAutoStop = null;
-    }
-  };
-  const scheduleAutoStop = () => {
-    clearPendingAutoStop();
-    pendingAutoStop = setTimeout(async () => {
-      pendingAutoStop = null;
-      if (!tracker) {
-        return;
-      }
-      if (
-        !vscode.window.state.focused &&
-        vscode.window.visibleTextEditors.length === 0 &&
-        tracker.getData().current
-      ) {
-        await tracker.stop();
-      }
-    }, 700);
-  };
-
   // Activity listeners for idle detection
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => tracker!.touchActivity())
@@ -273,25 +249,17 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!tracker) {
         return;
       }
-      if (!state.focused) {
-        scheduleAutoStop();
-        return;
+      if (state.focused) {
+        tracker.touchActivity();
       }
-      tracker.touchActivity();
-      clearPendingAutoStop();
     })
   );
   context.subscriptions.push(
-    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+    vscode.window.onDidChangeVisibleTextEditors(() => {
       if (!tracker) {
         return;
       }
-      if (editors.length === 0 && !vscode.window.state.focused) {
-        scheduleAutoStop();
-      } else {
-        tracker.touchActivity();
-        clearPendingAutoStop();
-      }
+      tracker.touchActivity();
     })
   );
   context.subscriptions.push(
@@ -310,11 +278,6 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({
     dispose: async () => {
       if (tracker) await tracker.stop();
-    },
-  });
-  context.subscriptions.push({
-    dispose: () => {
-      clearPendingAutoStop();
     },
   });
 }

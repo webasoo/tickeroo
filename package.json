@@ -1,6 +1,6 @@
 {
-  "name": "local-project-time-tracker",
-  "displayName": "Local Project Time Tracker",
+  "name": "tickeroo",
+  "displayName": "Tickeroo",
   "description": "Automatically track working time on local projects inside VS Code.",
   "version": "0.0.1",
   "publisher": "your-name",
