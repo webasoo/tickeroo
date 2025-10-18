@@ -16,54 +16,135 @@ export async function activate(context: vscode.ExtensionContext) {
   statusBar = new StatusBar(tracker);
   statusBar.start();
 
-  // Ask which project to work on when starting if workspace folders are available
-  const initialWorkspaceFolders = vscode.workspace.workspaceFolders || [];
-  if (!initialWorkspaceFolders || initialWorkspaceFolders.length === 0) {
-    vscode.window.showInformationMessage(
-      "Local Project Time Tracker: no workspace folders found. Open a folder to start tracking."
+  // On activation, offer a one-time prompt to start tracking. Show workspace folders,
+  // recent projects, or allow selecting a folder.
+  void (async function maybePromptInitialProject() {
+    const workspaceFolders = vscode.workspace.workspaceFolders || [];
+    const data = tracker!.getData();
+
+    const items: vscode.QuickPickItem[] = [];
+
+    // Workspace folders (if any)
+    if (workspaceFolders.length > 0) {
+      items.push({ label: "--- Workspace folders ---" });
+      for (const f of workspaceFolders) {
+        items.push({ label: f.name, description: f.uri.fsPath });
+      }
+    }
+
+    // Recent projects from stored data (most-recent first based on lastProjectPath)
+    const recentPaths = Object.keys(data.projects || {});
+    const lastProject = context.globalState.get<string>(
+      "timeTracker.lastProjectPath"
     );
-  } else {
-    const folderChoices = initialWorkspaceFolders.map(
-      (f: vscode.WorkspaceFolder) => ({
-        label: f.name,
-        description: f.uri.fsPath,
-      })
-    );
-    // prompt but do not block activation
-    vscode.window
-      .showQuickPick(folderChoices, { placeHolder: "Select project to track" })
-      .then(async (pick) => {
-        if (pick) {
-          const task = await promptForTask(pick.description, {
-            placeholder: "Select task to start or create a new one",
-          });
-          if (!task) {
-            return;
-          }
-          await tracker!.start(pick.description, task);
-        }
+    const sorted = recentPaths.sort((a, b) => {
+      if (a === lastProject) return -1;
+      if (b === lastProject) return 1;
+      return 0;
+    });
+    if (sorted.length > 0) {
+      items.push({ label: "--- Recent projects ---" });
+      for (const p of sorted) {
+        items.push({ label: p.split("/").pop() || p, description: p });
+      }
+    }
+
+    items.push({
+      label: "Select folder…",
+      description: "Browse for a folder to track",
+    });
+
+    // Non-blocking; show quick pick but don't force the user
+    const pick = await vscode.window.showQuickPick(items, {
+      placeHolder: "Select project to track (optional)",
+      ignoreFocusOut: true,
+    });
+    if (!pick) return;
+
+    if (pick.label === "Select folder…") {
+      const chosen = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
       });
-  }
+      if (!chosen || chosen.length === 0) return;
+      const folderPath = chosen[0].fsPath;
+      const task = await promptForTask(folderPath, {
+        placeholder: "Select task to start or create a new one",
+      });
+      if (!task) return;
+      await tracker!.start(folderPath, task);
+      tracker!.touchActivity();
+      return;
+    }
+
+    // Otherwise we have a description for the project path
+    const projectPath = pick.description ?? pick.label;
+    const task = await promptForTask(projectPath, {
+      placeholder: "Select task to start or create a new one",
+    });
+    if (!task) return;
+    await tracker!.start(projectPath, task);
+    tracker!.touchActivity();
+  })();
 
   const reportProvider = new ReportProvider(context);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("timeTracker.startTimer", async () => {
+      // Build an improved pick: workspace, recent, select folder
       const workspaceFolders = vscode.workspace.workspaceFolders || [];
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage("No workspace folder open");
-        return;
+      const data = tracker!.getData();
+      const items: vscode.QuickPickItem[] = [];
+
+      if (workspaceFolders.length > 0) {
+        items.push({ label: "--- Workspace folders ---" });
+        for (const f of workspaceFolders) {
+          items.push({ label: f.name, description: f.uri.fsPath });
+        }
       }
-      const pick = await vscode.window.showQuickPick(
-        workspaceFolders.map((f: vscode.WorkspaceFolder) => f.uri.fsPath),
-        { placeHolder: "Select project" }
+
+      const recent = Object.keys(data.projects || {});
+      const lastProject = context.globalState.get<string>(
+        "timeTracker.lastProjectPath"
       );
+      const sorted = recent.sort((a, b) =>
+        a === lastProject ? -1 : b === lastProject ? 1 : 0
+      );
+      if (sorted.length > 0) {
+        items.push({ label: "--- Recent projects ---" });
+        for (const p of sorted) {
+          items.push({ label: p.split("/").pop() || p, description: p });
+        }
+      }
+
+      items.push({
+        label: "Select folder…",
+        description: "Browse for a folder to track",
+      });
+
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: "Select project to track",
+      });
       if (!pick) return;
-      const task = await promptForTask(pick, {
+      let projectPath: string | undefined;
+      if (pick.label === "Select folder…") {
+        const chosen = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+        });
+        if (!chosen || chosen.length === 0) return;
+        projectPath = chosen[0].fsPath;
+      } else {
+        projectPath = pick.description ?? pick.label;
+      }
+      if (!projectPath) return;
+      const task = await promptForTask(projectPath, {
         placeholder: "Select task to start or create a new one",
       });
       if (!task) return;
-      await tracker!.start(pick, task);
+      await tracker!.start(projectPath, task);
       tracker!.touchActivity();
     })
   );
