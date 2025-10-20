@@ -7,7 +7,7 @@ let tracker: Tracker | null = null;
 let statusBar: StatusBar | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log("Local Project Time Tracker activating");
+  console.log("Tickeroo activating");
 
   tracker = new Tracker(context);
   await tracker.init();
@@ -217,7 +217,7 @@ export async function activate(context: vscode.ExtensionContext) {
       });
 
       const pick = await vscode.window.showQuickPick(items, {
-        placeHolder: "Time Tracker actions",
+      placeHolder: "Tickeroo actions",
       });
       if (!pick) {
         return;

@@ -12,7 +12,7 @@ export class ReportProvider {
     const data = getData();
     const panel = vscode.window.createWebviewPanel(
       "timeTrackerReport",
-      "Time Tracker Report",
+      "Tickeroo Report",
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -121,7 +121,7 @@ export class ReportProvider {
 
     if (rows.length === 1) {
       vscode.window.showInformationMessage(
-        "Time Tracker: no data to export for today."
+        "Tickeroo: no data to export for today."
       );
       return;
     }
@@ -131,14 +131,14 @@ export class ReportProvider {
     if (workspaceFolders && workspaceFolders.length > 0) {
       defaultUri = vscode.Uri.joinPath(
         workspaceFolders[0].uri,
-        `.vscode/time-tracker-report-${today}.csv`
+        `.vscode/tickeroo-report-${today}.csv`
       );
     }
 
     if (!defaultUri) {
       defaultUri = vscode.Uri.joinPath(
         this.context.globalStorageUri,
-        `time-tracker-report-${today}.csv`
+        `tickeroo-report-${today}.csv`
       );
     }
 
@@ -158,7 +158,7 @@ export class ReportProvider {
     const bytes = Buffer.from(content, "utf8");
     await vscode.workspace.fs.writeFile(saveUri, bytes);
     vscode.window.showInformationMessage(
-      `Time Tracker: exported report to ${saveUri.fsPath}`
+      `Tickeroo: exported report to ${saveUri.fsPath}`
     );
   }
 

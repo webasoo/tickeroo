@@ -124,13 +124,11 @@ export class Tracker {
     this.lastTick = startTime.getTime();
     this.persistLastActivity(this.lastTick);
     await writeData(this.context, this.data, project);
-    console.log(
-      `Local Project Time Tracker: started timer for ${project} / ${task}`
-    );
+    console.log(`Tickeroo: started timer for ${project} / ${task}`);
     if (!options?.silent) {
       try {
         vscode.window.showInformationMessage(
-          `Time Tracker: started '${task}' on ${
+          `Tickeroo: started '${task}' on ${
             project.split("/").pop() || project
           }`
         );

@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
 import { Tracker } from "./tracker";
+import { TimeTrackerData } from "./types";
 
 export class StatusBar {
   private item: vscode.StatusBarItem;
   private tracker: Tracker;
   private interval: NodeJS.Timeout | null = null;
+  private flashState = false;
 
   constructor(tracker: Tracker) {
     this.tracker = tracker;
@@ -13,12 +15,11 @@ export class StatusBar {
       100
     );
     this.item.command = "timeTracker.showStatusMenu";
-    this.item.tooltip = "Local Project Time Tracker — click for actions";
+    this.item.tooltip = "Tickeroo — click for actions";
     this.item.show();
   }
 
   start() {
-    console.log("Local Project Time Tracker: status bar started");
     this.update();
     this.interval = setInterval(() => this.update(), 1000) as any;
   }
@@ -35,10 +36,24 @@ export class StatusBar {
     const data = this.tracker.getData();
     const cur = data.current;
     if (!cur) {
-      this.item.text = `🕒 Time Tracker: idle`;
-      this.item.tooltip = `Local Project Time Tracker — click to start tracking or view a report`;
+      const hasTrackedHistory = this.hasTrackedHistory(data);
+      if (hasTrackedHistory) {
+        this.flashState = !this.flashState;
+        // const icon = this.flashState ? "🟡" : "🕒";
+        const icon = "🕒";
+        this.item.text = `${icon} Tickeroo: idle`;
+        this.item.color = this.flashState
+          ? new vscode.ThemeColor("statusBarItem.warningBackground")
+          : undefined;
+      } else {
+        this.flashState = false;
+        this.item.text = `🕒 Tickeroo: idle`;
+      }
+      this.item.tooltip = `Tickeroo — click to start tracking or view a report`;
       return;
     }
+
+    this.flashState = false;
     const start = new Date(cur.start);
     const seconds = Math.max(
       0,
@@ -54,5 +69,17 @@ export class StatusBar {
     const projectName = cur.project.split("/").pop() || cur.project;
     this.item.text = `🕑 ${projectName} — ${cur.task} (${hh}:${mm}:${ss})`;
     this.item.tooltip = `${cur.project} — ${cur.task}\nClick for more actions`;
+  }
+
+  private hasTrackedHistory(data: TimeTrackerData) {
+    const projects = data.projects ?? {};
+    return Object.values(projects).some((project) =>
+      Object.values(project.days ?? {}).some(
+        (day) =>
+          day.totalSeconds > 0 ||
+          Object.keys(day.tasks ?? {}).length > 0 ||
+          (day.entries?.length ?? 0) > 0
+      )
+    );
   }
 }

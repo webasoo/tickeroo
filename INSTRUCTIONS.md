@@ -1,4 +1,4 @@
-# Local Project Time Tracker - Instructions and Task List
+# Tickeroo - Instructions and Task List
 
 This file lists the project requirements and a checklist for the extension tasks. It is used by the development agent to track progress.
 
@@ -25,8 +25,10 @@ This file lists the project requirements and a checklist for the extension tasks
 - [ ] Implement webview report
 - [ ] README and run instructions
 - [ ] Tests / quick verification
-
-Updated progress:
+- [] set default to prevent load choose project as default on load project
+- [x] add a gif on a project that has tracker records by now is idle
+- [] add config (disable timer for specific project, idle time threshold, auto start on run, etc)
+  Updated progress:
 
 - [x] Create extension scaffold (package.json, tsconfig)
 - [x] Add VS Code launch config for F5

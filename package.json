@@ -2,7 +2,7 @@
   "name": "tickeroo",
   "displayName": "Tickeroo",
   "description": "Automatically track working time on local projects inside VS Code.",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "publisher": "your-name",
   "engines": {
     "vscode": "^1.60.0"
@@ -39,7 +39,7 @@
       },
       {
         "command": "timeTracker.showStatusMenu",
-        "title": "Time Tracker: Status Menu"
+        "title": "Tickeroo: Status Menu"
       }
     ]
   },
