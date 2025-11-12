@@ -2,7 +2,7 @@
   "name": "tickeroo",
   "displayName": "Tickeroo",
   "description": "Automatically track working time on local projects inside VS Code.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "your-name",
   "engines": {
     "vscode": "^1.60.0"
@@ -13,9 +13,12 @@
   "activationEvents": [
     "*",
     "onCommand:timeTracker.startTimer",
+    "onCommand:timeTracker.startTimerOutsideWorkspace",
     "onCommand:timeTracker.stopTimer",
     "onCommand:timeTracker.switchTask",
     "onCommand:timeTracker.showReport",
+    "onCommand:timeTracker.showCurrentProjectReport",
+    "onCommand:timeTracker.showAllProjectsReport",
     "onCommand:timeTracker.showStatusMenu"
   ],
   "main": "./out/extension.js",
@@ -24,6 +27,10 @@
       {
         "command": "timeTracker.startTimer",
         "title": "Start Timer"
+      },
+      {
+        "command": "timeTracker.startTimerOutsideWorkspace",
+        "title": "Start Timer (Other Project)"
       },
       {
         "command": "timeTracker.stopTimer",
@@ -36,6 +43,14 @@
       {
         "command": "timeTracker.showReport",
         "title": "Show Report"
+      },
+      {
+        "command": "timeTracker.showCurrentProjectReport",
+        "title": "Show Report (Current Project)"
+      },
+      {
+        "command": "timeTracker.showAllProjectsReport",
+        "title": "Show Report (All Projects)"
       },
       {
         "command": "timeTracker.showStatusMenu",

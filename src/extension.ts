@@ -1,182 +1,179 @@
+import * as path from "path";
 import * as vscode from "vscode";
+import { StorageService } from "./storage";
 import { Tracker } from "./tracker";
 import { StatusBar } from "./statusBar";
 import { ReportProvider } from "./reportProvider";
 
+let storage: StorageService | null = null;
 let tracker: Tracker | null = null;
 let statusBar: StatusBar | null = null;
+let reportProvider: ReportProvider | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log("Tickeroo activating");
 
-  tracker = new Tracker(context);
+  storage = new StorageService(context);
+  tracker = new Tracker(context, storage);
   await tracker.init();
 
-  // create status bar as early as possible so it's visible in the Dev Host
   statusBar = new StatusBar(tracker);
   statusBar.start();
 
-  // On activation, offer a one-time prompt to start tracking. Show workspace folders,
-  // recent projects, or allow selecting a folder.
-  void (async function maybePromptInitialProject() {
-    const workspaceFolders = vscode.workspace.workspaceFolders || [];
-    const data = tracker!.getData();
+  reportProvider = new ReportProvider(context, storage);
 
-    const items: vscode.QuickPickItem[] = [];
-
-    // Workspace folders (if any)
-    if (workspaceFolders.length > 0) {
-      items.push({ label: "--- Workspace folders ---" });
-      for (const f of workspaceFolders) {
-        items.push({ label: f.name, description: f.uri.fsPath });
-      }
-    }
-
-    // Recent projects from stored data (most-recent first based on lastProjectPath)
-    const recentPaths = Object.keys(data.projects || {});
-    const lastProject = context.globalState.get<string>(
-      "timeTracker.lastProjectPath"
-    );
-    const sorted = recentPaths.sort((a, b) => {
-      if (a === lastProject) return -1;
-      if (b === lastProject) return 1;
-      return 0;
-    });
-    if (sorted.length > 0) {
-      items.push({ label: "--- Recent projects ---" });
-      for (const p of sorted) {
-        items.push({ label: p.split("/").pop() || p, description: p });
-      }
-    }
-
-    items.push({
-      label: "Select folder…",
-      description: "Browse for a folder to track",
-    });
-
-    // Non-blocking; show quick pick but don't force the user
-    const pick = await vscode.window.showQuickPick(items, {
-      placeHolder: "Select project to track (optional)",
-      ignoreFocusOut: true,
-    });
-    if (!pick) return;
-
-    if (pick.label === "Select folder…") {
-      const chosen = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-      });
-      if (!chosen || chosen.length === 0) return;
-      const folderPath = chosen[0].fsPath;
-      const task = await promptForTask(folderPath, {
-        placeholder: "Select task to start or create a new one",
-      });
-      if (!task) return;
-      await tracker!.start(folderPath, task);
-      tracker!.touchActivity();
-      return;
-    }
-
-    // Otherwise we have a description for the project path
-    const projectPath = pick.description ?? pick.label;
-    const task = await promptForTask(projectPath, {
-      placeholder: "Select task to start or create a new one",
-    });
-    if (!task) return;
-    await tracker!.start(projectPath, task);
-    tracker!.touchActivity();
-  })();
-
-  const reportProvider = new ReportProvider(context);
+  void maybePromptInitialProject();
 
   context.subscriptions.push(
     vscode.commands.registerCommand("timeTracker.startTimer", async () => {
-      // Build an improved pick: workspace, recent, select folder
-      const workspaceFolders = vscode.workspace.workspaceFolders || [];
-      const data = tracker!.getData();
-      const items: vscode.QuickPickItem[] = [];
-
-      if (workspaceFolders.length > 0) {
-        items.push({ label: "--- Workspace folders ---" });
-        for (const f of workspaceFolders) {
-          items.push({ label: f.name, description: f.uri.fsPath });
-        }
+      if (!tracker) {
+        return;
       }
-
-      const recent = Object.keys(data.projects || {});
-      const lastProject = context.globalState.get<string>(
-        "timeTracker.lastProjectPath"
-      );
-      const sorted = recent.sort((a, b) =>
-        a === lastProject ? -1 : b === lastProject ? 1 : 0
-      );
-      if (sorted.length > 0) {
-        items.push({ label: "--- Recent projects ---" });
-        for (const p of sorted) {
-          items.push({ label: p.split("/").pop() || p, description: p });
-        }
-      }
-
-      items.push({
-        label: "Select folder…",
-        description: "Browse for a folder to track",
-      });
-
-      const pick = await vscode.window.showQuickPick(items, {
+      const pick = await pickWorkspaceProject({
         placeHolder: "Select project to track",
+        includeOther: true,
       });
-      if (!pick) return;
-      let projectPath: string | undefined;
-      if (pick.label === "Select folder…") {
+      if (!pick) {
+        return;
+      }
+      if (pick === "other") {
+        await vscode.commands.executeCommand(
+          "timeTracker.startTimerOutsideWorkspace"
+        );
+        return;
+      }
+      await handleStartForProject(
+        pick.projectPath,
+        pick.projectLabel,
+        pick.projectId
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("timeTracker.startTimerOutsideWorkspace", async () => {
+      if (!tracker) {
+        return;
+      }
+      const pick = await pickGlobalProject();
+      if (!pick) {
+        return;
+      }
+      if (pick.action === "browse") {
         const chosen = await vscode.window.showOpenDialog({
           canSelectFiles: false,
           canSelectFolders: true,
           canSelectMany: false,
         });
-        if (!chosen || chosen.length === 0) return;
-        projectPath = chosen[0].fsPath;
-      } else {
-        projectPath = pick.description ?? pick.label;
+        if (!chosen || chosen.length === 0) {
+          return;
+        }
+        await handleStartForProject(chosen[0].fsPath);
+        return;
       }
-      if (!projectPath) return;
-      const task = await promptForTask(projectPath, {
-        placeholder: "Select task to start or create a new one",
-      });
-      if (!task) return;
-      await tracker!.start(projectPath, task);
-      tracker!.touchActivity();
+      await handleStartForProject(
+        pick.projectPath,
+        pick.projectLabel,
+        pick.projectId
+      );
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("timeTracker.stopTimer", async () => {
-      await tracker!.stop();
+      if (!tracker) {
+        return;
+      }
+      await tracker.stop();
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("timeTracker.switchTask", async () => {
-      const data = tracker!.getData();
-      if (!data.current) {
+      if (!tracker) {
+        return;
+      }
+      const session = tracker.getActiveSession();
+      if (!session) {
         vscode.window.showInformationMessage("No active timer");
         return;
       }
-      const task = await promptForTask(data.current.project, {
+      const task = await promptForTask(session.projectPath, {
         placeholder: "Select a new task or create one",
-        excludeTask: data.current.task,
-        fallbackValue: data.current.task,
+        excludeTask: session.task,
+        fallbackValue: session.task,
+        projectLabel: session.projectName,
       });
-      if (!task) return;
-      await tracker!.switchTask(task);
-      tracker!.touchActivity();
+      if (!task) {
+        return;
+      }
+      await tracker.switchTask(task);
+      tracker.touchActivity();
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("timeTracker.showReport", async () => {
-      reportProvider.show(() => tracker!.getData());
+      if (!reportProvider) {
+        return;
+      }
+      interface ReportScopePick extends vscode.QuickPickItem {
+        command: string;
+      }
+      const scopeItems: ReportScopePick[] = [
+        {
+          label: "Current project",
+          description: "Focus on your most recent project",
+          command: "timeTracker.showCurrentProjectReport",
+        },
+        {
+          label: "All projects",
+          description: "Aggregate every tracked project",
+          command: "timeTracker.showAllProjectsReport",
+        },
+      ];
+      const pick = await vscode.window.showQuickPick<ReportScopePick>(
+        scopeItems,
+        {
+          placeHolder: "Select report scope",
+        }
+      );
+      if (!pick) {
+        return;
+      }
+      await vscode.commands.executeCommand(pick.command);
     })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "timeTracker.showCurrentProjectReport",
+      async () => {
+        if (!reportProvider || !tracker) {
+          return;
+        }
+        const entry = tracker.getMostRecentProjectEntry();
+        if (!entry) {
+          vscode.window.showInformationMessage(
+            "Tickeroo: no tracked projects available for reporting."
+          );
+          return;
+        }
+        await reportProvider.showProject(entry);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "timeTracker.showAllProjectsReport",
+      async () => {
+        if (!reportProvider) {
+          return;
+        }
+        await reportProvider.showAllProjects();
+      }
+    )
   );
 
   context.subscriptions.push(
@@ -184,23 +181,27 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!tracker) {
         return;
       }
-      type StatusAction = "start" | "stop" | "switch" | "report";
+      type StatusAction =
+        | "start"
+        | "stop"
+        | "switch"
+        | "reportCurrent"
+        | "reportAll";
       interface StatusMenuItem extends vscode.QuickPickItem {
         action: StatusAction;
       }
-      const data = tracker.getData();
+
+      const session = tracker.getActiveSession();
       const items: StatusMenuItem[] = [];
-      if (data.current) {
-        const projectName =
-          data.current.project.split("/").pop() || data.current.project;
+      if (session) {
         items.push({
           label: "Stop timer",
-          description: `${projectName} — ${data.current.task}`,
+          description: `${session.projectName} — ${session.task}`,
           action: "stop",
         });
         items.push({
           label: "Switch task",
-          description: `${projectName} — ${data.current.task}`,
+          description: `${session.projectName} — ${session.task}`,
           action: "switch",
         });
       } else {
@@ -211,13 +212,18 @@ export async function activate(context: vscode.ExtensionContext) {
         });
       }
       items.push({
-        label: "Show report",
-        description: "View today's tracked time by project and task",
-        action: "report",
+        label: "Report current project",
+        description: "Review the most recent project's activity",
+        action: "reportCurrent",
+      });
+      items.push({
+        label: "Report all projects",
+        description: "Aggregate time across every project",
+        action: "reportAll",
       });
 
       const pick = await vscode.window.showQuickPick(items, {
-      placeHolder: "Tickeroo actions",
+        placeHolder: "Tickeroo actions",
       });
       if (!pick) {
         return;
@@ -233,8 +239,15 @@ export async function activate(context: vscode.ExtensionContext) {
         case "switch":
           await vscode.commands.executeCommand("timeTracker.switchTask");
           break;
-        case "report":
-          await vscode.commands.executeCommand("timeTracker.showReport");
+        case "reportCurrent":
+          await vscode.commands.executeCommand(
+            "timeTracker.showCurrentProjectReport"
+          );
+          break;
+        case "reportAll":
+          await vscode.commands.executeCommand(
+            "timeTracker.showAllProjectsReport"
+          );
           break;
       }
     })
@@ -242,7 +255,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Activity listeners for idle detection
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(() => tracker!.touchActivity())
+    vscode.window.onDidChangeActiveTextEditor(() => tracker?.touchActivity())
   );
   context.subscriptions.push(
     vscode.window.onDidChangeWindowState((state) => {
@@ -255,12 +268,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
   context.subscriptions.push(
-    vscode.window.onDidChangeVisibleTextEditors(() => {
-      if (!tracker) {
-        return;
-      }
-      tracker.touchActivity();
-    })
+    vscode.window.onDidChangeVisibleTextEditors(() => tracker?.touchActivity())
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
@@ -274,22 +282,294 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Save on shutdown
   context.subscriptions.push({
     dispose: async () => {
-      if (tracker) await tracker.stop();
+      if (tracker) {
+        await tracker.dispose();
+      }
     },
   });
 }
 
 export function deactivate() {
-  // nothing special — stop handled in dispose
+  // nothing special — tracker disposed via subscriptions
+}
+
+interface WorkspacePickResult {
+  projectPath: string;
+  projectLabel: string;
+  projectId?: string;
+}
+
+async function maybePromptInitialProject(): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders || [];
+  if (!tracker) {
+    return;
+  }
+  if (!storage || folders.length === 0) {
+    tracker.setWorkspaceHasTrackedHistory(false);
+    return;
+  }
+
+  const hasHistory = await workspaceHasRecordedHistory(folders);
+  tracker.setWorkspaceHasTrackedHistory(hasHistory);
+  if (!hasHistory) {
+    return;
+  }
+
+  const pick = await pickWorkspaceProject({
+    placeHolder: "Select project to track (optional)",
+    includeOther: true,
+    optional: true,
+  });
+  if (!pick) {
+    return;
+  }
+  if (pick === "other") {
+    await vscode.commands.executeCommand(
+      "timeTracker.startTimerOutsideWorkspace"
+    );
+    return;
+  }
+  await handleStartForProject(
+    pick.projectPath,
+    pick.projectLabel,
+    pick.projectId
+  );
+}
+
+async function workspaceHasRecordedHistory(
+  folders: readonly vscode.WorkspaceFolder[]
+): Promise<boolean> {
+  if (!storage) {
+    return false;
+  }
+  for (const folder of folders) {
+    try {
+      const hasRecords = await storage.projectHasRecords(folder.uri.fsPath);
+      if (hasRecords) {
+        return true;
+      }
+    } catch {
+      // ignore per-folder errors; fallback to prompting when possible
+    }
+  }
+  return false;
+}
+
+async function handleStartForProject(
+  projectPath: string,
+  projectLabel?: string,
+  projectId?: string
+): Promise<void> {
+  if (!tracker) {
+    return;
+  }
+  let resolvedPath = projectPath;
+  if (projectId) {
+    const exists = await pathExists(resolvedPath);
+    if (!exists) {
+      const choice = await vscode.window.showWarningMessage(
+        `${projectLabel ?? "Project"} path not found. Update location?`,
+        "Locate…",
+        "Cancel"
+      );
+      if (choice !== "Locate…") {
+        return;
+      }
+      const replacement = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+      });
+      if (!replacement || replacement.length === 0) {
+        return;
+      }
+      resolvedPath = replacement[0].fsPath;
+      await tracker.updateProjectPath(projectId, resolvedPath);
+    }
+  }
+
+  const task = await promptForTask(resolvedPath, {
+    placeholder: projectLabel
+      ? `Select task for ${projectLabel}`
+      : "Select task to start or create a new one",
+    projectLabel,
+  });
+  if (!task) {
+    return;
+  }
+  await tracker.start(resolvedPath, task);
+  tracker.touchActivity();
+}
+
+async function pickWorkspaceProject(options: {
+  placeHolder: string;
+  includeOther?: boolean;
+  optional?: boolean;
+}): Promise<WorkspacePickResult | "other" | undefined> {
+  const folders = vscode.workspace.workspaceFolders || [];
+  if (folders.length === 0) {
+    return undefined;
+  }
+
+  interface WorkspacePickItem extends vscode.QuickPickItem {
+    projectPath?: string;
+    projectLabel?: string;
+    projectId?: string;
+    action?: "other";
+  }
+
+  const items: WorkspacePickItem[] = [];
+  if (folders.length > 0) {
+    items.push({
+      label: "Workspace folders",
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    for (const folder of folders) {
+      const projectPath = folder.uri.fsPath;
+      const entry = storage?.findProjectByPath(projectPath);
+      items.push({
+        label: entry?.name ?? folder.name,
+        description: projectPath,
+        projectPath,
+        projectLabel: entry?.name ?? folder.name,
+        projectId: entry?.id,
+      });
+    }
+  }
+
+  if (options.includeOther) {
+    items.push({
+      label: "Other projects…",
+      description: "Select from known projects or browse",
+      action: "other",
+    });
+  }
+
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: options.placeHolder,
+    ignoreFocusOut: !options.optional,
+  });
+
+  if (!pick) {
+    return undefined;
+  }
+
+  if (pick.action === "other") {
+    return "other";
+  }
+
+  if (pick.projectPath && pick.projectLabel) {
+    return {
+      projectPath: pick.projectPath,
+      projectLabel: pick.projectLabel,
+      projectId: pick.projectId,
+    };
+  }
+
+  return undefined;
+}
+
+async function pickGlobalProject(): Promise<
+  | {
+      action: "existing";
+      projectId: string;
+      projectPath: string;
+      projectLabel: string;
+    }
+  | { action: "browse" }
+  | undefined
+> {
+  if (!tracker) {
+    return undefined;
+  }
+  const folders = vscode.workspace.workspaceFolders || [];
+  const known = tracker.listProjects();
+  const outside = known.filter((entry) => !isInsideWorkspace(entry.path, folders));
+
+  interface GlobalPickItem extends vscode.QuickPickItem {
+    action: "existing" | "browse";
+    projectId?: string;
+    projectPath?: string;
+    projectLabel?: string;
+  }
+
+  const items: GlobalPickItem[] = [];
+  if (outside.length > 0) {
+    items.push({
+      label: "Tracked projects",
+      kind: vscode.QuickPickItemKind.Separator,
+      action: "existing",
+    });
+    for (const entry of outside) {
+      items.push({
+        label: entry.name,
+        description: entry.path,
+        action: "existing",
+        projectId: entry.id,
+        projectPath: entry.path,
+        projectLabel: entry.name,
+      });
+    }
+  }
+
+  items.push({
+    label: "Browse for folder…",
+    description: "Track a project outside this workspace",
+    action: "browse",
+  });
+
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: outside.length
+      ? "Select tracked project or browse"
+      : "Browse for a project to track",
+  });
+  if (!pick) {
+    return undefined;
+  }
+  if (pick.action === "browse") {
+    return { action: "browse" };
+  }
+  if (pick.projectId && pick.projectPath && pick.projectLabel) {
+    return {
+      action: "existing",
+      projectId: pick.projectId,
+      projectPath: pick.projectPath,
+      projectLabel: pick.projectLabel,
+    };
+  }
+  return undefined;
+}
+
+function isInsideWorkspace(
+  projectPath: string,
+  folders: readonly vscode.WorkspaceFolder[]
+): boolean {
+  for (const folder of folders) {
+    const workspacePath = folder.uri.fsPath;
+    const relative = path.relative(workspacePath, projectPath);
+    if (!relative || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function pathExists(candidate: string): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.file(candidate));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 interface TaskPromptOptions {
   placeholder?: string;
   excludeTask?: string;
   fallbackValue?: string;
+  projectLabel?: string;
 }
 
 async function promptForTask(
@@ -300,8 +580,7 @@ async function promptForTask(
     return undefined;
   }
 
-  const data = tracker.getData();
-  const projectRecord = data.projects[projectPath];
+  const snapshot = await tracker.getProjectSnapshotByPath(projectPath);
 
   type TaskAction = "task" | "new";
   interface TaskQuickPickItem extends vscode.QuickPickItem {
@@ -312,7 +591,7 @@ async function promptForTask(
   const items: TaskQuickPickItem[] = [];
   const seen = new Set<string>();
 
-  const lastTask = projectRecord?.lastTask;
+  const lastTask = snapshot.lastTask;
   if (lastTask && lastTask !== options.excludeTask) {
     items.push({
       label: lastTask,
@@ -324,14 +603,12 @@ async function promptForTask(
   }
 
   const historicalTasks = new Set<string>();
-  if (projectRecord?.days) {
-    for (const day of Object.values(projectRecord.days)) {
-      for (const taskName of Object.keys(day.tasks)) {
-        if (!taskName) {
-          continue;
-        }
-        historicalTasks.add(taskName);
+  for (const day of Object.values(snapshot.days ?? {})) {
+    for (const taskName of Object.keys(day.tasks ?? {})) {
+      if (!taskName) {
+        continue;
       }
+      historicalTasks.add(taskName);
     }
   }
 
@@ -362,7 +639,11 @@ async function promptForTask(
   });
 
   const pick = await vscode.window.showQuickPick(items, {
-    placeHolder: options.placeholder ?? "Select task",
+    placeHolder:
+      options.placeholder ??
+      (options.projectLabel
+        ? `Select task for ${options.projectLabel}`
+        : "Select task"),
     ignoreFocusOut: true,
   });
 

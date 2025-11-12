@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { Tracker } from "./tracker";
-import { TimeTrackerData } from "./types";
 
 export class StatusBar {
   private item: vscode.StatusBarItem;
@@ -33,11 +32,10 @@ export class StatusBar {
   }
 
   private update() {
-    const data = this.tracker.getData();
-    const cur = data.current;
-    if (!cur) {
-      const hasTrackedHistory = this.hasTrackedHistory(data);
-      if (hasTrackedHistory) {
+    const session = this.tracker.getActiveSession();
+    if (!session) {
+      const shouldFlash = this.tracker.shouldFlashWhenIdle();
+      if (shouldFlash) {
         this.flashState = !this.flashState;
         // const icon = this.flashState ? "🟡" : "🕒";
         const icon = "🕒";
@@ -48,13 +46,15 @@ export class StatusBar {
       } else {
         this.flashState = false;
         this.item.text = `🕒 Tickeroo: idle`;
+        this.item.color = undefined;
       }
       this.item.tooltip = `Tickeroo — click to start tracking or view a report`;
       return;
     }
 
     this.flashState = false;
-    const start = new Date(cur.start);
+    this.item.color = undefined;
+    const start = new Date(session.start);
     const seconds = Math.max(
       0,
       Math.round((Date.now() - start.getTime()) / 1000)
@@ -66,20 +66,8 @@ export class StatusBar {
       .toString()
       .padStart(2, "0");
     const ss = (seconds % 60).toString().padStart(2, "0");
-    const projectName = cur.project.split("/").pop() || cur.project;
-    this.item.text = `🕑 ${projectName} — ${cur.task} (${hh}:${mm}:${ss})`;
-    this.item.tooltip = `${cur.project} — ${cur.task}\nClick for more actions`;
-  }
-
-  private hasTrackedHistory(data: TimeTrackerData) {
-    const projects = data.projects ?? {};
-    return Object.values(projects).some((project) =>
-      Object.values(project.days ?? {}).some(
-        (day) =>
-          day.totalSeconds > 0 ||
-          Object.keys(day.tasks ?? {}).length > 0 ||
-          (day.entries?.length ?? 0) > 0
-      )
-    );
+    const taskLabel = session.task || "Active task";
+    this.item.text = `🕑 ${taskLabel} (${hh}:${mm}:${ss})`;
+    this.item.tooltip = `${session.projectPath} — ${session.task}\nClick for more actions`;
   }
 }
