@@ -19,7 +19,7 @@ const ACTIVITY_LOG_FILE_NAME = "activity_log.json";
 
 const SNAPSHOT_VERSION = 1;
 const INDEX_VERSION = 1;
-const ACTIVITY_LOG_VERSION = 1;
+const ACTIVITY_LOG_VERSION = 2; // v2: removed projectName, only projectId stored
 
 interface LegacySnapshotMigration {
   projectPath: string;
@@ -221,11 +221,7 @@ export class StorageService {
     return this.activityLog;
   }
 
-  async recordActivity(
-    projectId: string,
-    projectName: string,
-    date: string
-  ): Promise<void> {
+  async recordActivity(projectId: string, date: string): Promise<void> {
     if (!date) {
       return;
     }
@@ -234,16 +230,12 @@ export class StorageService {
       (entry) => entry.date === normalizedDate && entry.projectId === projectId
     );
     if (existing) {
-      if (existing.projectName !== projectName) {
-        existing.projectName = projectName;
-        await this.persistActivityLog();
-      }
+      // Entry already exists, no need to update
       return;
     }
     this.activityLog.entries.push({
       date: normalizedDate,
       projectId,
-      projectName,
     });
     await this.persistActivityLog();
   }
@@ -258,6 +250,11 @@ export class StorageService {
       }
     }
     return result;
+  }
+
+  resolveProjectName(projectId: string): string | undefined {
+    const entry = this.findProjectById(projectId);
+    return entry?.name;
   }
 
   // #endregion
@@ -363,7 +360,7 @@ export class StorageService {
       dates.add(day.slice(0, 10));
     }
     for (const date of dates) {
-      await this.recordActivity(entry.id, entry.name, date);
+      await this.recordActivity(entry.id, date);
     }
   }
 

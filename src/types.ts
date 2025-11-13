@@ -46,7 +46,6 @@ export interface ProjectsIndexFile {
 export interface ActivityLogEntry {
   date: string; // YYYY-MM-DD
   projectId: string;
-  projectName: string;
 }
 
 export interface ActivityLogFile {

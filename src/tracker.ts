@@ -302,11 +302,7 @@ export class Tracker {
     await this.storage.touchProjectUsage(entry.id, startTime);
     entry.lastUsed = startTime.toISOString();
     this.projectIndex.set(entry.id, { ...entry });
-    await this.storage.recordActivity(
-      entry.id,
-      entry.name,
-      startTime.toISOString()
-    );
+    await this.storage.recordActivity(entry.id, startTime.toISOString());
 
     console.log(`Tickeroo: started timer for ${entry.name} / ${task}`);
     if (!options?.silent) {
@@ -433,7 +429,7 @@ export class Tracker {
     await this.storage.touchProjectUsage(entry.id, effectiveStop);
     entry.lastUsed = effectiveStop.toISOString();
     this.projectIndex.set(entry.id, { ...entry });
-    await this.storage.recordActivity(entry.id, entry.name, stopDay);
+    await this.storage.recordActivity(entry.id, stopDay);
   }
 
   async switchTask(task: string) {
@@ -614,7 +610,7 @@ export class Tracker {
       try {
         await this.storage.saveProjectSnapshot(entry.path, currentSnapshot);
         this.projectSnapshots.set(entry.id, { ...currentSnapshot });
-        await this.storage.recordActivity(entry.id, entry.name, pending.day);
+        await this.storage.recordActivity(entry.id, pending.day);
       } catch (err: any) {
         if (err?.message?.includes("SNAPSHOT_CONFLICT")) {
           // Another window modified the snapshot; refresh and restart the resolution process
