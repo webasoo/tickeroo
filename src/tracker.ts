@@ -170,8 +170,26 @@ export class Tracker {
     this.workspaceHasHistory = value;
   }
 
-  shouldFlashWhenIdle(): boolean {
-    return this.workspaceHasHistory;
+  async shouldFlashWhenIdle(): Promise<boolean> {
+    // Check if any workspace folders have actual records on disk
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (folders.length === 0) {
+      return false;
+    }
+
+    for (const folder of folders) {
+      try {
+        const hasRecords = await this.storage.projectHasRecords(
+          folder.uri.fsPath
+        );
+        if (hasRecords) {
+          return true;
+        }
+      } catch {
+        // ignore errors for individual folders
+      }
+    }
+    return false;
   }
 
   async getProjectSnapshotById(projectId: string): Promise<ProjectSnapshot> {

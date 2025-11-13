@@ -31,14 +31,14 @@ export class StatusBar {
     this.item.dispose();
   }
 
-  private update() {
+  private async update() {
     const session = this.tracker.getActiveSession();
     if (!session) {
-      const shouldFlash = this.tracker.shouldFlashWhenIdle();
+      const shouldFlash = await this.tracker.shouldFlashWhenIdle();
       if (shouldFlash) {
         this.flashState = !this.flashState;
-        // const icon = this.flashState ? "🟡" : "🕒";
-        const icon = "🕒";
+        const icon = this.flashState ? "🟡" : "🕒";
+        //const icon = "🕒";
         this.item.text = `${icon} Tickeroo: idle`;
         this.item.color = this.flashState
           ? new vscode.ThemeColor("statusBarItem.warningBackground")

@@ -82,7 +82,9 @@ export class StorageService {
     // Optimistic locking: check if file was modified since we read it
     const currentOnDisk = await this.readProjectSnapshot(normalized);
 
-    // Always check lastModified timestamps, regardless of cache state
+    // Check lastModified timestamps to detect conflicts
+    // If snapshot has no lastModified (new file), skip the check
+    // If both have lastModified but they differ, it's a conflict
     if (
       snapshot.lastModified !== undefined &&
       currentOnDisk.lastModified !== undefined &&
@@ -430,7 +432,7 @@ export class StorageService {
         lastModified: parsed?.lastModified ?? 0,
       } satisfies ProjectSnapshot;
     } catch {
-      return { days: {}, lastModified: Date.now() };
+      return { days: {} };
     }
   }
 
