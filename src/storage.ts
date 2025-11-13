@@ -78,9 +78,26 @@ export class StorageService {
   ): Promise<void> {
     const normalized = this.normalizePath(projectPath);
     const { folder, file } = this.getProjectStoragePaths(normalized);
+
+    // Optimistic locking: check if file was modified since we read it
+    const currentOnDisk = await this.readProjectSnapshot(normalized);
+
+    // Always check lastModified timestamps, regardless of cache state
+    if (
+      snapshot.lastModified !== undefined &&
+      currentOnDisk.lastModified !== undefined &&
+      currentOnDisk.lastModified !== snapshot.lastModified
+    ) {
+      // File was modified by another window
+      throw new Error(
+        "SNAPSHOT_CONFLICT: Another window has modified this project"
+      );
+    }
+
     const serializable = {
       ...snapshot,
       version: SNAPSHOT_VERSION,
+      lastModified: Date.now(),
     } satisfies ProjectSnapshot;
     const bytes = Buffer.from(JSON.stringify(serializable, null, 2), "utf8");
 
@@ -229,10 +246,7 @@ export class StorageService {
     await this.persistActivityLog();
   }
 
-  getProjectsTouchedBetween(
-    startDate: string,
-    endDate: string
-  ): Set<string> {
+  getProjectsTouchedBetween(startDate: string, endDate: string): Set<string> {
     const from = startDate.slice(0, 10);
     const to = endDate.slice(0, 10);
     const result = new Set<string>();
@@ -249,7 +263,8 @@ export class StorageService {
   // #region Legacy migration
 
   private async migrateLegacyStorage(): Promise<void> {
-    const legacyCandidates: Array<{ uri: vscode.Uri; removeAfter?: boolean }> = [];
+    const legacyCandidates: Array<{ uri: vscode.Uri; removeAfter?: boolean }> =
+      [];
 
     const globalFallbackFolder = vscode.Uri.joinPath(
       this.context.globalStorageUri,
@@ -287,7 +302,10 @@ export class StorageService {
 
       const migrations = this.buildLegacyMigrations(legacy);
       for (const migration of migrations) {
-        await this.saveProjectSnapshot(migration.projectPath, migration.snapshot);
+        await this.saveProjectSnapshot(
+          migration.projectPath,
+          migration.snapshot
+        );
         const metadata = await this.upsertProjectMetadata(
           migration.projectPath
         );
@@ -376,7 +394,9 @@ export class StorageService {
     }
   }
 
-  private async readProjectSnapshot(projectPath: string): Promise<ProjectSnapshot> {
+  private async readProjectSnapshot(
+    projectPath: string
+  ): Promise<ProjectSnapshot> {
     const { file } = this.getProjectStoragePaths(projectPath);
     try {
       const bytes = await vscode.workspace.fs.readFile(file);
@@ -407,9 +427,10 @@ export class StorageService {
         lastTask: parsed?.lastTask,
         current: parsed?.current ?? null,
         version: parsed?.version ?? SNAPSHOT_VERSION,
+        lastModified: parsed?.lastModified ?? 0,
       } satisfies ProjectSnapshot;
     } catch {
-      return { days: {} };
+      return { days: {}, lastModified: Date.now() };
     }
   }
 

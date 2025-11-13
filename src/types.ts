@@ -11,7 +11,7 @@ export interface DayRecord {
 export interface SessionEntry {
   task: string;
   start: string;
-  end: string;
+  end?: string;
   seconds: number;
 }
 
@@ -22,11 +22,13 @@ export interface ProjectSnapshot {
   lastTask?: string;
   current?: ActiveSession | null;
   version?: number;
+  lastModified?: number; // timestamp in milliseconds for optimistic locking
 }
 
 export interface ActiveSession {
   task: string;
   start: string; // ISO string
+  entryDay?: string; // YYYY-MM-DD of the provisional entry
 }
 
 export interface ProjectIndexEntry {

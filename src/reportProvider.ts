@@ -306,12 +306,18 @@ export class ReportProvider {
             `<table><thead><tr><th>Task</th><th>Start</th><th>End</th><th>Duration</th></tr></thead><tbody>`
           );
           for (const entry of sortedEntries) {
+            const endText = entry.end
+              ? new Date(entry.end).toLocaleString()
+              : "—";
+            const durationText = entry.end
+              ? formatSeconds(entry.seconds || 0)
+              : "Pending";
             parts.push(
               `<tr><td>${escapeHtml(entry.task)}</td><td>${escapeHtml(
                 new Date(entry.start).toLocaleString()
               )}</td><td>${escapeHtml(
-                new Date(entry.end).toLocaleString()
-              )}</td><td>${formatSeconds(entry.seconds)}</td></tr>`
+                endText
+              )}</td><td>${durationText}</td></tr>`
             );
           }
           parts.push(`</tbody></table>`);
@@ -346,12 +352,17 @@ export class ReportProvider {
 
         if (entries.length > 0) {
           for (const entry of entries) {
+            const endValue = entry.end ?? "";
+            const secondsValue = entry.end ? `${entry.seconds}` : "";
+            const formattedValue = entry.end
+              ? formatSeconds(entry.seconds)
+              : "";
             rows.push(
               `${this.escapeCsv(project.entry.name)},${day.date},${this.escapeCsv(
                 entry.task
               )},${this.escapeCsv(entry.start)},${this.escapeCsv(
-                entry.end
-              )},${entry.seconds},${formatSeconds(entry.seconds)}`
+                endValue
+              )},${secondsValue},${formattedValue}`
             );
           }
         } else {

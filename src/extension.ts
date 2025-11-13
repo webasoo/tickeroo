@@ -51,32 +51,35 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("timeTracker.startTimerOutsideWorkspace", async () => {
-      if (!tracker) {
-        return;
-      }
-      const pick = await pickGlobalProject();
-      if (!pick) {
-        return;
-      }
-      if (pick.action === "browse") {
-        const chosen = await vscode.window.showOpenDialog({
-          canSelectFiles: false,
-          canSelectFolders: true,
-          canSelectMany: false,
-        });
-        if (!chosen || chosen.length === 0) {
+    vscode.commands.registerCommand(
+      "timeTracker.startTimerOutsideWorkspace",
+      async () => {
+        if (!tracker) {
           return;
         }
-        await handleStartForProject(chosen[0].fsPath);
-        return;
+        const pick = await pickGlobalProject();
+        if (!pick) {
+          return;
+        }
+        if (pick.action === "browse") {
+          const chosen = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+          });
+          if (!chosen || chosen.length === 0) {
+            return;
+          }
+          await handleStartForProject(chosen[0].fsPath);
+          return;
+        }
+        await handleStartForProject(
+          pick.projectPath,
+          pick.projectLabel,
+          pick.projectId
+        );
       }
-      await handleStartForProject(
-        pick.projectPath,
-        pick.projectLabel,
-        pick.projectId
-      );
-    })
+    )
   );
 
   context.subscriptions.push(
@@ -282,17 +285,15 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  context.subscriptions.push({
-    dispose: async () => {
-      if (tracker) {
-        await tracker.dispose();
-      }
-    },
-  });
+  // Note: We handle disposal in deactivate() instead of subscriptions
+  // because disposal is async and VS Code's subscription mechanism doesn't wait for it
 }
 
-export function deactivate() {
-  // nothing special — tracker disposed via subscriptions
+export async function deactivate() {
+  // Properly stop the tracker and save state before VS Code closes
+  if (tracker) {
+    await tracker.dispose();
+  }
 }
 
 interface WorkspacePickResult {
@@ -486,7 +487,9 @@ async function pickGlobalProject(): Promise<
   }
   const folders = vscode.workspace.workspaceFolders || [];
   const known = tracker.listProjects();
-  const outside = known.filter((entry) => !isInsideWorkspace(entry.path, folders));
+  const outside = known.filter(
+    (entry) => !isInsideWorkspace(entry.path, folders)
+  );
 
   interface GlobalPickItem extends vscode.QuickPickItem {
     action: "existing" | "browse";
@@ -549,7 +552,10 @@ function isInsideWorkspace(
   for (const folder of folders) {
     const workspacePath = folder.uri.fsPath;
     const relative = path.relative(workspacePath, projectPath);
-    if (!relative || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+    if (
+      !relative ||
+      (!relative.startsWith("..") && !path.isAbsolute(relative))
+    ) {
       return true;
     }
   }
