@@ -2,6 +2,28 @@
 
 Tickeroo is a small VS Code extension to track time spent on local projects and tasks.
 
+## Features
+
+- **Projects Sidebar**: Manage all your tracked projects from a dedicated sidebar view
+  - View all projects with their last-used timestamps
+  - See active timers with the ▶ icon and current task name
+  - Right-click context menu for quick actions (rename, delete, show report)
+  - Click on projects to start/stop timers or switch tasks
+- **Time Tracking**: Start and stop timers for different tasks within projects
+- **Status Bar Integration**: Quick access to timer controls and status
+- **Reports**: Generate detailed time reports with CSV export
+- **Multi-Window Support**: Safe concurrent usage across multiple VS Code windows with optimistic locking
+
+## Usage
+
+1. Open the Tickeroo sidebar from the Activity Bar (clock icon)
+2. Click on a project to start tracking time
+3. For active projects, click to see options: Stop, Switch Task, or Show Report
+4. Use the status bar item for quick timer controls
+5. Right-click any project for additional actions (rename, delete, show report)
+
+## Installation and Development
+
 Installation and run:
 
 1. Install dependencies:
@@ -40,6 +62,7 @@ Example `time-tracker.json` structure (stored in `.vscode/time-tracker.json`):
 ## Publishing Summary
 
 - **Local VSIX build/install**
+
   - `npm install` then `npm run compile`
   - `npx vsce package` (or use global `vsce`) to create `tickeroo-<version>.vsix`
   - Install locally with `code --install-extension tickeroo-<version>.vsix`
