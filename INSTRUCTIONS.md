@@ -38,6 +38,10 @@ This file lists the project requirements and a checklist for the extension tasks
 - [x] Register and implement commands
 - [x] Implement webview report
 - [x] README and run instructions
+- [ ] remian warning color on start with it
+- [ ] flasher must work only for projects that has snapshot with records.
+- [ ] feat: change name of every project
+- [ ] feat: sync to cloud storage (github gist, dropbox, etc)
 - [ ] Tests / quick verification
 
 Final status:
