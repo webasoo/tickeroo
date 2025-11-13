@@ -58,10 +58,6 @@
         "title": "Rename Project"
       },
       {
-        "command": "tickeroo.deleteProject",
-        "title": "Delete Project"
-      },
-      {
         "command": "tickeroo.showProjectReport",
         "title": "Show Report"
       },
@@ -111,11 +107,6 @@
         },
         {
           "command": "tickeroo.renameProject",
-          "when": "view == tickeroo.projects && viewItem == project",
-          "group": "2_manage"
-        },
-        {
-          "command": "tickeroo.deleteProject",
           "when": "view == tickeroo.projects && viewItem == project",
           "group": "2_manage"
         },

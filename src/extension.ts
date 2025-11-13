@@ -325,38 +325,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "tickeroo.deleteProject",
-      async (item: any) => {
-        if (!tracker || !storage) {
-          return;
-        }
-        const projectId = item?.project?.id;
-        if (!projectId) {
-          return;
-        }
-        const entry = storage.findProjectById(projectId);
-        if (!entry) {
-          return;
-        }
-        const confirmed = await vscode.window.showWarningMessage(
-          `Delete project '${entry.name}'? This will remove all tracked time data for this project.`,
-          { modal: true },
-          "Delete"
-        );
-        if (confirmed !== "Delete") {
-          return;
-        }
-        await storage.deleteProjectSnapshot(entry.path);
-        projectsTreeProvider?.refresh();
-        void vscode.window.showInformationMessage(
-          `Project '${entry.name}' deleted`
-        );
-      }
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
       "tickeroo.showProjectReport",
       async (item: any) => {
         if (!reportProvider || !storage) {
