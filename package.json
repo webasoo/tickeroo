@@ -12,51 +12,133 @@
   ],
   "activationEvents": [
     "*",
-    "onCommand:timeTracker.startTimer",
-    "onCommand:timeTracker.startTimerOutsideWorkspace",
-    "onCommand:timeTracker.stopTimer",
-    "onCommand:timeTracker.switchTask",
-    "onCommand:timeTracker.showReport",
-    "onCommand:timeTracker.showCurrentProjectReport",
-    "onCommand:timeTracker.showAllProjectsReport",
-    "onCommand:timeTracker.showStatusMenu"
+    "onCommand:tickeroo.startTimer",
+    "onCommand:tickeroo.startTimerOutsideWorkspace",
+    "onCommand:tickeroo.stopTimer",
+    "onCommand:tickeroo.switchTask",
+    "onCommand:tickeroo.showReport",
+    "onCommand:tickeroo.showCurrentProjectReport",
+    "onCommand:tickeroo.showAllProjectsReport",
+    "onCommand:tickeroo.showStatusMenu"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "timeTracker.startTimer",
+        "command": "tickeroo.startTimer",
         "title": "Start Timer"
       },
       {
-        "command": "timeTracker.startTimerOutsideWorkspace",
+        "command": "tickeroo.startTimerOutsideWorkspace",
         "title": "Start Timer (Other Project)"
       },
       {
-        "command": "timeTracker.stopTimer",
+        "command": "tickeroo.stopTimer",
         "title": "Stop Timer"
       },
       {
-        "command": "timeTracker.switchTask",
+        "command": "tickeroo.switchTask",
         "title": "Switch Task"
       },
       {
-        "command": "timeTracker.showReport",
+        "command": "tickeroo.showReport",
         "title": "Show Report"
       },
       {
-        "command": "timeTracker.showCurrentProjectReport",
+        "command": "tickeroo.showCurrentProjectReport",
         "title": "Show Report (Current Project)"
       },
       {
-        "command": "timeTracker.showAllProjectsReport",
+        "command": "tickeroo.showAllProjectsReport",
         "title": "Show Report (All Projects)"
       },
       {
-        "command": "timeTracker.showStatusMenu",
+        "command": "tickeroo.showStatusMenu",
         "title": "Tickeroo: Status Menu"
+      },
+      {
+        "command": "tickeroo.refreshProjects",
+        "title": "Refresh Projects",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "tickeroo.renameProject",
+        "title": "Rename Project"
+      },
+      {
+        "command": "tickeroo.deleteProject",
+        "title": "Delete Project"
+      },
+      {
+        "command": "tickeroo.showProjectReport",
+        "title": "Show Report"
+      },
+      {
+        "command": "tickeroo.startForProject",
+        "title": "Start Timer for Project"
+      },
+      {
+        "command": "tickeroo.stopForProject",
+        "title": "Stop Timer for Project"
+      },
+      {
+        "command": "tickeroo.showActiveProjectMenu",
+        "title": "Show Active Project Menu"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tickeroo",
+          "title": "Tickeroo",
+          "icon": "resources/clock.svg"
+        }
+      ]
+    },
+    "views": {
+      "tickeroo": [
+        {
+          "id": "tickeroo.projects",
+          "name": "Projects"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "tickeroo.refreshProjects",
+          "when": "view == tickeroo.projects",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "tickeroo.showProjectReport",
+          "when": "view == tickeroo.projects && viewItem == project",
+          "group": "1_report"
+        },
+        {
+          "command": "tickeroo.renameProject",
+          "when": "view == tickeroo.projects && viewItem == project",
+          "group": "2_manage"
+        },
+        {
+          "command": "tickeroo.deleteProject",
+          "when": "view == tickeroo.projects && viewItem == project",
+          "group": "2_manage"
+        },
+        {
+          "command": "tickeroo.showProjectReport",
+          "when": "view == tickeroo.projects && viewItem == project-active",
+          "group": "1_report"
+        },
+        {
+          "command": "tickeroo.renameProject",
+          "when": "view == tickeroo.projects && viewItem == project-active",
+          "group": "2_manage"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

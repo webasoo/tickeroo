@@ -13,7 +13,7 @@ export class StatusBar {
       vscode.StatusBarAlignment.Left,
       100
     );
-    this.item.command = "timeTracker.showStatusMenu";
+    this.item.command = "tickeroo.showStatusMenu";
     this.item.tooltip = "Tickeroo — click for actions";
     this.item.show();
   }

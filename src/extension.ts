@@ -4,11 +4,13 @@ import { StorageService } from "./storage";
 import { Tracker } from "./tracker";
 import { StatusBar } from "./statusBar";
 import { ReportProvider } from "./reportProvider";
+import { ProjectsTreeProvider } from "./projectsTreeProvider";
 
 let storage: StorageService | null = null;
 let tracker: Tracker | null = null;
 let statusBar: StatusBar | null = null;
 let reportProvider: ReportProvider | null = null;
+let projectsTreeProvider: ProjectsTreeProvider | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log("Tickeroo activating");
@@ -22,10 +24,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
   reportProvider = new ReportProvider(context, storage);
 
+  // Register tree view
+  projectsTreeProvider = new ProjectsTreeProvider(tracker, storage);
+  const treeView = vscode.window.createTreeView("tickeroo.projects", {
+    treeDataProvider: projectsTreeProvider,
+    showCollapseAll: false,
+  });
+  context.subscriptions.push(treeView);
+
   void maybePromptInitialProject();
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("timeTracker.startTimer", async () => {
+    vscode.commands.registerCommand("tickeroo.startTimer", async () => {
       if (!tracker) {
         return;
       }
@@ -38,7 +48,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       if (pick === "other") {
         await vscode.commands.executeCommand(
-          "timeTracker.startTimerOutsideWorkspace"
+          "tickeroo.startTimerOutsideWorkspace"
         );
         return;
       }
@@ -52,7 +62,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "timeTracker.startTimerOutsideWorkspace",
+      "tickeroo.startTimerOutsideWorkspace",
       async () => {
         if (!tracker) {
           return;
@@ -83,16 +93,17 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("timeTracker.stopTimer", async () => {
+    vscode.commands.registerCommand("tickeroo.stopTimer", async () => {
       if (!tracker) {
         return;
       }
       await tracker.stop();
+      projectsTreeProvider?.refresh();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("timeTracker.switchTask", async () => {
+    vscode.commands.registerCommand("tickeroo.switchTask", async () => {
       if (!tracker) {
         return;
       }
@@ -112,11 +123,12 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       await tracker.switchTask(task);
       tracker.touchActivity();
+      projectsTreeProvider?.refresh();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("timeTracker.showReport", async () => {
+    vscode.commands.registerCommand("tickeroo.showReport", async () => {
       if (!reportProvider) {
         return;
       }
@@ -127,12 +139,12 @@ export async function activate(context: vscode.ExtensionContext) {
         {
           label: "Current project",
           description: "Focus on your most recent project",
-          command: "timeTracker.showCurrentProjectReport",
+          command: "tickeroo.showCurrentProjectReport",
         },
         {
           label: "All projects",
           description: "Aggregate every tracked project",
-          command: "timeTracker.showAllProjectsReport",
+          command: "tickeroo.showAllProjectsReport",
         },
       ];
       const pick = await vscode.window.showQuickPick<ReportScopePick>(
@@ -150,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "timeTracker.showCurrentProjectReport",
+      "tickeroo.showCurrentProjectReport",
       async () => {
         if (!reportProvider || !tracker) {
           return;
@@ -169,7 +181,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "timeTracker.showAllProjectsReport",
+      "tickeroo.showAllProjectsReport",
       async () => {
         if (!reportProvider) {
           return;
@@ -180,7 +192,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("timeTracker.showStatusMenu", async () => {
+    vscode.commands.registerCommand("tickeroo.showStatusMenu", async () => {
       if (!tracker) {
         return;
       }
@@ -234,26 +246,197 @@ export async function activate(context: vscode.ExtensionContext) {
 
       switch (pick.action) {
         case "start":
-          await vscode.commands.executeCommand("timeTracker.startTimer");
+          await vscode.commands.executeCommand("tickeroo.startTimer");
           break;
         case "stop":
-          await vscode.commands.executeCommand("timeTracker.stopTimer");
+          await vscode.commands.executeCommand("tickeroo.stopTimer");
           break;
         case "switch":
-          await vscode.commands.executeCommand("timeTracker.switchTask");
+          await vscode.commands.executeCommand("tickeroo.switchTask");
           break;
         case "reportCurrent":
           await vscode.commands.executeCommand(
-            "timeTracker.showCurrentProjectReport"
+            "tickeroo.showCurrentProjectReport"
           );
           break;
         case "reportAll":
           await vscode.commands.executeCommand(
-            "timeTracker.showAllProjectsReport"
+            "tickeroo.showAllProjectsReport"
           );
           break;
       }
     })
+  );
+
+  // Tree view commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand("tickeroo.refreshProjects", () => {
+      projectsTreeProvider?.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "tickeroo.startForProject",
+      async (projectId: string) => {
+        if (!tracker || !storage) {
+          return;
+        }
+        const entry = storage.findProjectById(projectId);
+        if (!entry) {
+          return;
+        }
+        await handleStartForProject(entry.path, entry.name, entry.id);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "tickeroo.renameProject",
+      async (item: any) => {
+        if (!tracker || !storage) {
+          return;
+        }
+        const projectId = item?.project?.id;
+        if (!projectId) {
+          return;
+        }
+        const entry = storage.findProjectById(projectId);
+        if (!entry) {
+          return;
+        }
+        const newName = await vscode.window.showInputBox({
+          prompt: `Rename project '${entry.name}'`,
+          value: entry.name,
+          ignoreFocusOut: true,
+        });
+        if (!newName || !newName.trim()) {
+          return;
+        }
+        await tracker.renameProject(projectId, newName.trim());
+        projectsTreeProvider?.refresh();
+        void vscode.window.showInformationMessage(
+          `Project renamed to '${newName.trim()}'`
+        );
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "tickeroo.deleteProject",
+      async (item: any) => {
+        if (!tracker || !storage) {
+          return;
+        }
+        const projectId = item?.project?.id;
+        if (!projectId) {
+          return;
+        }
+        const entry = storage.findProjectById(projectId);
+        if (!entry) {
+          return;
+        }
+        const confirmed = await vscode.window.showWarningMessage(
+          `Delete project '${entry.name}'? This will remove all tracked time data for this project.`,
+          { modal: true },
+          "Delete"
+        );
+        if (confirmed !== "Delete") {
+          return;
+        }
+        await storage.deleteProjectSnapshot(entry.path);
+        projectsTreeProvider?.refresh();
+        void vscode.window.showInformationMessage(
+          `Project '${entry.name}' deleted`
+        );
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "tickeroo.showProjectReport",
+      async (item: any) => {
+        if (!reportProvider || !storage) {
+          return;
+        }
+        const projectId = item?.project?.id;
+        if (!projectId) {
+          return;
+        }
+        const entry = storage.findProjectById(projectId);
+        if (!entry) {
+          return;
+        }
+        await reportProvider.showProject(entry);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "tickeroo.showActiveProjectMenu",
+      async (projectId: string) => {
+        if (!tracker || !storage || !reportProvider) {
+          return;
+        }
+
+        const entry = storage.findProjectById(projectId);
+        if (!entry) {
+          return;
+        }
+
+        const session = tracker.getActiveSession();
+        if (!session || session.projectId !== projectId) {
+          return;
+        }
+
+        type ActiveAction = "stop" | "switch" | "report";
+        interface ActiveMenuItem extends vscode.QuickPickItem {
+          action: ActiveAction;
+        }
+
+        const items: ActiveMenuItem[] = [
+          {
+            label: "$(debug-stop) Stop Timer",
+            description: `Stop tracking '${session.task}'`,
+            action: "stop",
+          },
+          {
+            label: "$(arrow-swap) Switch Task",
+            description: "Change to a different task",
+            action: "switch",
+          },
+          {
+            label: "$(graph) Show Report",
+            description: `View time report for ${entry.name}`,
+            action: "report",
+          },
+        ];
+
+        const picked = await vscode.window.showQuickPick(items, {
+          placeHolder: `${entry.name}: ${session.task}`,
+        });
+
+        if (!picked) {
+          return;
+        }
+
+        switch (picked.action) {
+          case "stop":
+            await vscode.commands.executeCommand("tickeroo.stopTimer");
+            break;
+          case "switch":
+            await vscode.commands.executeCommand("tickeroo.switchTask");
+            break;
+          case "report":
+            await reportProvider.showProject(entry);
+            break;
+        }
+      }
+    )
   );
 
   // Activity listeners for idle detection
@@ -327,9 +510,7 @@ async function maybePromptInitialProject(): Promise<void> {
     return;
   }
   if (pick === "other") {
-    await vscode.commands.executeCommand(
-      "timeTracker.startTimerOutsideWorkspace"
-    );
+    await vscode.commands.executeCommand("tickeroo.startTimerOutsideWorkspace");
     return;
   }
   await handleStartForProject(
@@ -402,6 +583,7 @@ async function handleStartForProject(
   }
   await tracker.start(resolvedPath, task);
   tracker.touchActivity();
+  projectsTreeProvider?.refresh();
 }
 
 async function pickWorkspaceProject(options: {
