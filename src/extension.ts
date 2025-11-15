@@ -4,6 +4,7 @@ import { StorageService } from "./storage";
 import { Tracker } from "./tracker";
 import { StatusBar } from "./statusBar";
 import { ReportProvider } from "./reportProvider";
+import { ProjectIndexEntry } from "./types";
 import { ProjectsTreeProvider } from "./projectsTreeProvider";
 
 let storage: StorageService | null = null;
@@ -167,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (!reportProvider || !tracker) {
           return;
         }
-        const entry = tracker.getMostRecentProjectEntry();
+        const entry = resolveCurrentProjectEntry();
         if (!entry) {
           vscode.window.showInformationMessage(
             "Tickeroo: no tracked projects available for reporting."
@@ -226,11 +227,14 @@ export async function activate(context: vscode.ExtensionContext) {
           action: "start",
         });
       }
-      items.push({
-        label: "Report current project",
-        description: "Review the most recent project's activity",
-        action: "reportCurrent",
-      });
+      const currentEntry = resolveCurrentProjectEntry();
+      if (currentEntry) {
+        items.push({
+          label: "Report current project",
+          description: `Focus on ${currentEntry.name}`,
+          action: "reportCurrent",
+        });
+      }
       items.push({
         label: "Report all projects",
         description: "Aggregate time across every project",
@@ -445,6 +449,33 @@ export async function deactivate() {
   if (tracker) {
     await tracker.dispose();
   }
+}
+
+function resolveCurrentProjectEntry(): ProjectIndexEntry | undefined {
+  if (!tracker || !storage) {
+    return undefined;
+  }
+  // 1) Prefer actively running session's project
+  const session = tracker.getActiveSession();
+  if (session) {
+    const active = storage.findProjectById(session.projectId);
+    if (active) {
+      return active;
+    }
+  }
+  // 2) Next, use active editor's workspace folder
+  const editor = vscode.window.activeTextEditor;
+  if (editor) {
+    const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+    if (folder) {
+      const byPath = storage.findProjectByPath(folder.uri.fsPath);
+      if (byPath) {
+        return byPath;
+      }
+    }
+  }
+  // No fallback: if هیچ کدام نبود، گزارش جاری ارائه نمی‌شود
+  return undefined;
 }
 
 interface WorkspacePickResult {
