@@ -33,6 +33,14 @@ export class Tracker {
     this.storage = storage;
   }
 
+  // Formats a Date into local YYYY-MM-DD (avoids UTC drift in reports)
+  private formatLocalDay(date: Date): string {
+    const y = date.getFullYear();
+    const m = `${date.getMonth() + 1}`.padStart(2, "0");
+    const d = `${date.getDate()}`.padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
   async init(): Promise<void> {
     if (this.initialized) {
       return;
@@ -253,7 +261,7 @@ export class Tracker {
       return;
     }
     const startIso = startTime.toISOString();
-    const entryDay = startIso.slice(0, 10);
+    const entryDay = this.formatLocalDay(startTime);
     const dayRecord = this.ensureDayRecord(snapshot, entryDay);
     this.ensurePendingEntry(dayRecord, task, startIso);
 
@@ -286,6 +294,30 @@ export class Tracker {
       throw err;
     }
 
+    // Verify that the provisional entry actually persisted to disk before declaring start
+    try {
+      const verify = await this.storage.refreshProjectSnapshot(entry.path);
+      const vDay = verify.days[entryDay];
+      const hasEntry = !!vDay?.entries?.some((e) => e.start === startIso);
+      const currentOk =
+        verify.current?.start === startIso && verify.current?.task === task;
+      if (!hasEntry || !currentOk) {
+        console.error(
+          "Tickeroo: start verification failed; entry not found on disk"
+        );
+        void vscode.window.showErrorMessage(
+          "Tickeroo: Failed to persist start entry. Please try starting again."
+        );
+        return;
+      }
+    } catch (e) {
+      console.error("Tickeroo: verification read failed", e);
+      void vscode.window.showErrorMessage(
+        "Tickeroo: Could not verify timer start. Please try again."
+      );
+      return;
+    }
+
     this.projectSnapshots.set(entry.id, { ...snapshot });
 
     this.activeSession = {
@@ -302,7 +334,8 @@ export class Tracker {
     await this.storage.touchProjectUsage(entry.id, startTime);
     entry.lastUsed = startTime.toISOString();
     this.projectIndex.set(entry.id, { ...entry });
-    await this.storage.recordActivity(entry.id, startTime.toISOString());
+    // Record activity for the local day
+    await this.storage.recordActivity(entry.id, this.formatLocalDay(startTime));
 
     console.log(`Tickeroo: started timer for ${entry.name} / ${task}`);
     if (!options?.silent) {
@@ -343,8 +376,8 @@ export class Tracker {
       0,
       Math.round((effectiveStop.getTime() - start.getTime()) / 1000)
     );
-    const stopDay = effectiveStop.toISOString().slice(0, 10);
-    const preferredDay = current.entryDay ?? current.start.slice(0, 10);
+    const stopDay = this.formatLocalDay(effectiveStop);
+    const preferredDay = current.entryDay ?? this.formatLocalDay(start);
 
     let entryInfo =
       this.findSessionEntry(snapshot, preferredDay, current.start) ??
@@ -365,29 +398,53 @@ export class Tracker {
       };
     }
 
+    // If the session crosses a local day boundary, split it between days
     if (entryInfo.day !== stopDay) {
-      const sourceRecord = snapshot.days[entryInfo.day];
-      if (sourceRecord?.entries) {
-        sourceRecord.entries.splice(entryInfo.index, 1);
-      }
-      const targetRecord = this.ensureDayRecord(snapshot, stopDay);
-      targetRecord.entries!.push(entryInfo.entry);
-      entryInfo = {
-        day: stopDay,
-        index: targetRecord.entries!.length - 1,
-        entry: entryInfo.entry,
-      };
+      // Compute boundary at local midnight of stop day
+      const boundary = new Date(effectiveStop);
+      boundary.setHours(0, 0, 0, 0);
+
+      // First segment: from start -> boundary
+      const firstSeconds = Math.max(
+        0,
+        Math.round((boundary.getTime() - start.getTime()) / 1000)
+      );
+      const firstDayRecord = this.ensureDayRecord(snapshot, entryInfo.day);
+      entryInfo.entry.task = current.task;
+      entryInfo.entry.start = current.start;
+      entryInfo.entry.end = boundary.toISOString();
+      entryInfo.entry.seconds = firstSeconds;
+      firstDayRecord.totalSeconds += firstSeconds;
+      firstDayRecord.tasks[current.task] =
+        (firstDayRecord.tasks[current.task] || 0) + firstSeconds;
+
+      // Second segment: from boundary -> stop
+      const secondSeconds = Math.max(
+        0,
+        Math.round((effectiveStop.getTime() - boundary.getTime()) / 1000)
+      );
+      const secondDayRecord = this.ensureDayRecord(snapshot, stopDay);
+      secondDayRecord.entries = secondDayRecord.entries || [];
+      secondDayRecord.entries.push({
+        task: current.task,
+        start: boundary.toISOString(),
+        end: effectiveStop.toISOString(),
+        seconds: secondSeconds,
+      });
+      secondDayRecord.totalSeconds += secondSeconds;
+      secondDayRecord.tasks[current.task] =
+        (secondDayRecord.tasks[current.task] || 0) + secondSeconds;
+    } else {
+      // Single-day session
+      const targetDayRecord = this.ensureDayRecord(snapshot, entryInfo.day);
+      entryInfo.entry.task = current.task;
+      entryInfo.entry.start = current.start;
+      entryInfo.entry.end = effectiveStop.toISOString();
+      entryInfo.entry.seconds = seconds;
+      targetDayRecord.totalSeconds += seconds;
+      targetDayRecord.tasks[current.task] =
+        (targetDayRecord.tasks[current.task] || 0) + seconds;
     }
-
-    const targetDayRecord = this.ensureDayRecord(snapshot, entryInfo.day);
-    entryInfo.entry.task = current.task;
-    entryInfo.entry.start = current.start;
-    entryInfo.entry.end = effectiveStop.toISOString();
-    entryInfo.entry.seconds = seconds;
-
-    targetDayRecord.totalSeconds += seconds;
-    targetDayRecord.tasks[current.task] =
-      (targetDayRecord.tasks[current.task] || 0) + seconds;
 
     snapshot.lastTask = current.task;
     snapshot.current = null;
@@ -429,7 +486,12 @@ export class Tracker {
     await this.storage.touchProjectUsage(entry.id, effectiveStop);
     entry.lastUsed = effectiveStop.toISOString();
     this.projectIndex.set(entry.id, { ...entry });
+    // Record activity for local day(s)
     await this.storage.recordActivity(entry.id, stopDay);
+    const startDay = preferredDay;
+    if (startDay !== stopDay) {
+      await this.storage.recordActivity(entry.id, startDay);
+    }
   }
 
   async switchTask(task: string) {
