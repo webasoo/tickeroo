@@ -97,6 +97,9 @@ export class Tracker {
     }
     const now = Date.now();
     if (now - this.lastTick > this.idleThreshold) {
+      // We've been idle (sleep or pause). Resume ticking by resetting the clock
+      // so subsequent ticks persist activity again instead of staying stuck.
+      this.lastTick = now;
       return;
     }
     this.lastTick = now;
@@ -819,6 +822,8 @@ export class Tracker {
       return;
     }
     if (timestamp - this.lastPersistedActivity < 1000) {
+      // Keep in-memory last activity fresh even if we skip persisting to storage
+      this.lastPersistedActivity = timestamp;
       return;
     }
     this.lastPersistedActivity = timestamp;
