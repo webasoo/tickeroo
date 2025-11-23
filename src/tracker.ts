@@ -12,6 +12,7 @@ import { snapshotHasRecords } from "./historyUtils";
 
 const LAST_PROJECT_KEY = "timeTracker.lastProjectId";
 const LAST_ACTIVITY_KEY = "timeTracker.lastActivity";
+const OWNS_ACTIVE_SESSION_KEY = "timeTracker.ownsActiveSession";
 
 export class Tracker {
   private readonly context: vscode.ExtensionContext;
@@ -20,8 +21,11 @@ export class Tracker {
   private readonly projectIndex = new Map<string, ProjectIndexEntry>();
   private timerInterval: NodeJS.Timeout | null = null;
   private lastTick = Date.now();
-  private readonly idleThreshold = 5 * 60 * 1000; // 5 minutes
-  private lastPersistedActivity = 0;
+  private readonly idleThreshold = 40 * 1000; // 10 seconds
+  private readonly activityPersistInterval = 30 * 1000; // 30 seconds
+  private lastActivityMemoryMs = 0;
+  private lastActivityPersistedMs = 0;
+  private ownsActiveSession = false;
   private initialized = false;
 
   private activeSession: ActiveProjectSession | null = null;
@@ -48,29 +52,54 @@ export class Tracker {
 
     await this.storage.init();
     await this.refreshIndex();
+    this.ownsActiveSession =
+      this.context.workspaceState.get<boolean>(OWNS_ACTIVE_SESSION_KEY) ??
+      false;
 
-    const lastProjectId =
+    const storedLastProjectId =
       this.context.globalState.get<string>(LAST_PROJECT_KEY) ?? null;
-    if (lastProjectId) {
-      this.lastProjectId = lastProjectId;
+    if (storedLastProjectId) {
+      if (this.projectIndex.has(storedLastProjectId)) {
+        this.lastProjectId = storedLastProjectId;
+      } else {
+        void vscode.window.showErrorMessage(
+          `Tickeroo: Unable to restore last active project (${storedLastProjectId}). Project metadata is missing.`
+        );
+        void this.context.globalState.update(LAST_PROJECT_KEY, undefined);
+      }
     }
 
-    const lastActivityMs =
+    const persistedLastActivity =
       this.context.globalState.get<number>(LAST_ACTIVITY_KEY) ?? undefined;
-    if (lastActivityMs) {
-      this.lastPersistedActivity = lastActivityMs;
+    if (persistedLastActivity) {
+      this.lastActivityMemoryMs = persistedLastActivity;
+      this.lastActivityPersistedMs = persistedLastActivity;
     }
 
     await this.loadSnapshots();
 
-    if (this.activeSession && lastActivityMs) {
+    if (!this.activeSession && this.ownsActiveSession) {
+      await this.setOwnsActiveSession(false);
+    }
+
+    if (this.activeSession && persistedLastActivity) {
       const currentStart = new Date(this.activeSession.start).getTime();
       const nowMs = Date.now();
-      const candidate = Math.max(
-        currentStart,
-        Math.min(lastActivityMs ?? nowMs, nowMs)
-      );
-      await this.stop(new Date(candidate));
+      const isRecent = nowMs - persistedLastActivity < this.idleThreshold;
+      if (!isRecent) {
+        const candidate = Math.max(
+          currentStart,
+          Math.min(persistedLastActivity ?? nowMs, nowMs)
+        );
+        try {
+          await this.stop(new Date(candidate));
+        } catch (err: any) {
+          console.error("Tickeroo: failed to auto-stop stale session", err);
+          void vscode.window.showErrorMessage(
+            "Tickeroo: Could not recover the previous timer. Please stop it manually."
+          );
+        }
+      }
     }
 
     this.startTicker();
@@ -92,7 +121,7 @@ export class Tracker {
   }
 
   private onTick() {
-    if (!this.activeSession) {
+    if (!this.activeSession || !this.ownsActiveSession) {
       return;
     }
     const now = Date.now();
@@ -107,11 +136,21 @@ export class Tracker {
   }
 
   touchActivity() {
+    if (!this.activeSession || !this.ownsActiveSession) {
+      return;
+    }
     this.lastTick = Date.now();
     this.persistLastActivity(this.lastTick);
   }
 
   getActiveSession(): ActiveProjectSession | null {
+    return this.activeSession;
+  }
+
+  getOwnedActiveSession(): ActiveProjectSession | null {
+    if (!this.ownsActiveSession) {
+      return null;
+    }
     return this.activeSession;
   }
 
@@ -230,6 +269,26 @@ export class Tracker {
     options?: { startTime?: Date; silent?: boolean }
   ) {
     const startTime = options?.startTime ?? new Date();
+    const nowMs = startTime.getTime();
+    const persistedLastActivity =
+      this.context.globalState.get<number>(LAST_ACTIVITY_KEY) ?? undefined;
+    const persistedLastProjectId =
+      this.context.globalState.get<string>(LAST_PROJECT_KEY) ?? null;
+
+    if (
+      persistedLastActivity &&
+      nowMs - persistedLastActivity < this.idleThreshold
+    ) {
+      const conflictName =
+        this.resolveProjectName(persistedLastProjectId) ||
+        persistedLastProjectId ||
+        "another project";
+      void vscode.window.showWarningMessage(
+        `Tickeroo: timer is already running for ${conflictName}. Stop it before starting another timer.`
+      );
+      return;
+    }
+
     const entry = await this.ensureProjectEntry(projectPath);
     let snapshot = await this.loadLatestSnapshot(entry);
 
@@ -332,8 +391,9 @@ export class Tracker {
     };
 
     await this.persistLastProject(entry.id);
-    this.lastTick = startTime.getTime();
-    this.persistLastActivity(this.lastTick);
+    await this.setOwnsActiveSession(true);
+    this.lastTick = nowMs;
+    this.persistLastActivity(this.lastTick, true);
     await this.storage.touchProjectUsage(entry.id, startTime);
     entry.lastUsed = startTime.toISOString();
     this.projectIndex.set(entry.id, { ...entry });
@@ -350,6 +410,7 @@ export class Tracker {
 
   async stop(at?: Date) {
     if (!this.activeSession) {
+      await this.setOwnsActiveSession(false);
       return;
     }
 
@@ -357,6 +418,7 @@ export class Tracker {
     const entry = this.projectIndex.get(session.projectId);
     if (!entry) {
       this.activeSession = null;
+      await this.setOwnsActiveSession(false);
       return;
     }
 
@@ -484,8 +546,9 @@ export class Tracker {
 
     this.activeSession = null;
     this.lastTick = effectiveStop.getTime();
-    this.persistLastActivity(this.lastTick);
-    await this.persistLastProject(entry.id);
+    this.clearLastActivity();
+    await this.setOwnsActiveSession(false);
+    await this.persistLastProject(null);
     await this.storage.touchProjectUsage(entry.id, effectiveStop);
     entry.lastUsed = effectiveStop.toISOString();
     this.projectIndex.set(entry.id, { ...entry });
@@ -808,26 +871,61 @@ export class Tracker {
     return trimmed && trimmed.length > 0 ? trimmed : defaultName;
   }
 
-  private async persistLastProject(projectId: string) {
-    this.lastProjectId = projectId;
+  private async setOwnsActiveSession(value: boolean) {
+    if (this.ownsActiveSession === value) {
+      return;
+    }
+    this.ownsActiveSession = value;
     try {
-      await this.context.globalState.update(LAST_PROJECT_KEY, projectId);
+      await this.context.workspaceState.update(OWNS_ACTIVE_SESSION_KEY, value);
     } catch {
       // ignore persistence errors
     }
   }
 
-  private persistLastActivity(timestamp: number) {
+  private resolveProjectName(projectId: string | null): string | null {
+    if (!projectId) {
+      return null;
+    }
+    const indexed = this.projectIndex.get(projectId);
+    if (indexed?.name) {
+      return indexed.name;
+    }
+    const stored = this.storage.findProjectById(projectId);
+    return stored?.name ?? null;
+  }
+
+  private async persistLastProject(projectId: string | null) {
+    this.lastProjectId = projectId;
+    try {
+      await this.context.globalState.update(
+        LAST_PROJECT_KEY,
+        projectId ?? undefined
+      );
+    } catch {
+      // ignore persistence errors
+    }
+  }
+
+  private persistLastActivity(timestamp: number, forcePersist = false) {
     if (timestamp <= 0) {
       return;
     }
-    if (timestamp - this.lastPersistedActivity < 1000) {
-      // Keep in-memory last activity fresh even if we skip persisting to storage
-      this.lastPersistedActivity = timestamp;
+    this.lastActivityMemoryMs = timestamp;
+    if (
+      !forcePersist &&
+      timestamp - this.lastActivityPersistedMs < this.activityPersistInterval
+    ) {
       return;
     }
-    this.lastPersistedActivity = timestamp;
+    this.lastActivityPersistedMs = timestamp;
     void this.context.globalState.update(LAST_ACTIVITY_KEY, timestamp);
+  }
+
+  private clearLastActivity() {
+    this.lastActivityMemoryMs = 0;
+    this.lastActivityPersistedMs = 0;
+    void this.context.globalState.update(LAST_ACTIVITY_KEY, undefined);
   }
 
   private async refreshIndex(): Promise<void> {

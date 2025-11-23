@@ -32,7 +32,7 @@ export class StatusBar {
   }
 
   private async update() {
-    const session = this.tracker.getActiveSession();
+    const session = this.tracker.getOwnedActiveSession();
     if (!session) {
       const shouldFlash = await this.tracker.shouldFlashWhenIdle();
       if (shouldFlash) {

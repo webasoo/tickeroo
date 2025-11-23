@@ -12,7 +12,7 @@ Tickeroo is a small VS Code extension to track time spent on local projects and 
 - **Time Tracking**: Start and stop timers for different tasks within projects
 - **Status Bar Integration**: Quick access to timer controls and status
 - **Reports**: Generate detailed time reports with CSV export
-- **Multi-Window Support**: Safe concurrent usage across multiple VS Code windows with optimistic locking
+- **Multi-Window Support**: Safe concurrent usage across multiple VS Code windows with optimistic locking, per-window ownership of the active timer, and shared global-state signals to prevent duplicate starts
 
 ## Usage
 
@@ -21,6 +21,13 @@ Tickeroo is a small VS Code extension to track time spent on local projects and 
 3. For active projects, click to see options: Stop, Switch Task, or Show Report
 4. Use the status bar item for quick timer controls
 5. Right-click any project for additional actions (rename, delete, show report)
+
+## Multi-Window Coordination & Resilience
+
+- **Crash-safe last activity**: While a timer runs, the tracker updates VS Code's `globalState` every ~30 seconds (and immediately on start/stop) with the latest activity timestamp plus the owning project ID. If VS Code crashes or the machine sleeps, the next session can resume/repair using that data.
+- **Per-window ownership**: The window that starts a timer records an ownership flag in `workspaceState`. Other windows can still "see" the active session (for logs and recovery decisions) but do not update status bars or tickers, so there is never double-counting.
+- **Duplicate-start guard**: When a new timer is requested, the tracker compares `now` against the persisted activity timestamp to ensure another window isn't already running within the idle + persistence window.
+- **Auto-recovery**: On activation, if a persisted timestamp is older than the idle threshold, the tracker stamps the snapshot with the recovered stop time, clears the global keys, and prompts the user if anything goes wrong. Otherwise, the original timer quietly resumes in the owning window.
 
 ## Installation and Development
 

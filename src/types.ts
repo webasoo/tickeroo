@@ -28,7 +28,7 @@ export interface ProjectSnapshot {
 export interface ActiveSession {
   task: string;
   start: string; // ISO string
-  entryDay?: string; // YYYY-MM-DD of the provisional entry
+  entryDay?: string; // YYYY-MM-DD of the pending entry
 }
 
 export interface ProjectIndexEntry {
@@ -61,7 +61,7 @@ export interface ActiveProjectSession {
   start: string; // ISO string
 }
 
-// Legacy types kept for migration and compatibility with older storage formats.
+// Legacy aggregate structures kept for migration only
 export interface ProjectRecord {
   days: {
     [date: string]: DayRecord;
