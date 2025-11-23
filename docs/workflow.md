@@ -13,8 +13,9 @@ This document explains, step by step, how the extension behaves in every major s
 2. `StorageService` (`src/storage.ts`) initializes on-disk data under `.vscode/time-tracker.json` per project and a global index/activity log under the extension's global storage.
 3. `Tracker` (`src/tracker.ts`) initializes:
    - Loads the projects index and every project's snapshot.
-   - Detects whether any snapshot has an unfinished session (`snapshot.current`) and resurrects the most recent one as the active session so the user can stop it.
-   - Starts a 1-second ticker to persist "last activity" timestamps (used for idle detection).
+   - Reads `globalState` (`LAST_PROJECT_KEY`, `LAST_ACTIVITY_KEY`) plus the window-scoped ownership flag (`OWNS_ACTIVE_SESSION_KEY` in `workspaceState`). If the stored project no longer exists, the key is cleared with a warning.
+   - Detects whether any snapshot has an unfinished session (`snapshot.current`) and resurrects the most recent one as the tentative active session. If the persisted last-activity timestamp is older than the idle threshold, it auto-stops the session at that timestamp and clears the persisted keys; otherwise, it keeps running only if this window owns the session.
+   - Starts a 1-second ticker to persist "last activity" timestamps (used for idle detection) but only when the owning window still has the timer.
 4. UI helpers (`StatusBar`, `ReportProvider`, `ProjectsTreeProvider`) start and register commands.
 5. `ProjectsTreeProvider` (`src/projectsTreeProvider.ts`) creates the sidebar tree view:
    - Displays all projects from the global index
@@ -26,11 +27,12 @@ This document explains, step by step, how the extension behaves in every major s
 
 1. The command resolves a `ProjectIndexEntry` either from the current workspace folder list, by prompting the user, or directly from the sidebar tree view (by clicking an inactive project).
 2. `Tracker.start()` refreshes the project's snapshot **from disk** to avoid stale state across windows.
-3. `ensurePendingEntriesResolved()` checks the snapshot for any session entries without an `end` value:
+3. Before touching the snapshot, it compares the persisted `LAST_ACTIVITY_KEY` timestamp (which any window may have written within the last ~30 s) against the idle threshold. If the value is still "fresh," the command aborts with a warning because another window already has a running timer.
+4. `ensurePendingEntriesResolved()` checks the snapshot for any session entries without an `end` value:
    - If one exists, the user must supply an end time (HH:MM) before proceeding.
    - The helper computes the duration, updates the day totals, saves the snapshot, and restarts the scan until no incomplete entries remain.
-4. If the snapshot still reports an active session (`snapshot.current`), a warning message appears:`Tickeroo: timer '…' is already running…`. The start request stops here, so a second window cannot hijack a running timer.
-5. If everything is clear:
+5. If the snapshot still reports an active session (`snapshot.current`), a warning message appears:`Tickeroo: timer '…' is already running…`. The start request stops here, so a second window cannot hijack a running timer.
+6. If everything is clear:
    - `snapshot.current` is set to the new task and start time.
    - A placeholder entry (`dayRecord.entries`) is inserted immediately, ensuring at least a partial record exists.
    - The snapshot is saved, the active session cache is updated, `lastProjectId`/`lastActivity` are persisted, and an activity log entry is recorded.
@@ -55,19 +57,23 @@ This document explains, step by step, how the extension behaves in every major s
 - Every mutation (start/stop/manual close) begins by reloading the snapshot from disk via `StorageService.refreshProjectSnapshot`, so concurrent VS Code windows never operate on stale data.
 - **Optimistic locking:** Before saving, the extension compares `snapshot.lastModified` timestamps. If both the in-memory snapshot and the on-disk snapshot have `lastModified` values and they differ, a `SNAPSHOT_CONFLICT` error is raised. For new projects (no snapshot file yet), the absence of `lastModified` avoids false-positive conflicts. On conflict, operations like `stop()` or resolving pending entries refresh the snapshot and retry automatically.
 - Starting a timer also requires a clean snapshot: pending entries must be closed, and any existing `snapshot.current` blocks new timers with a warning. This prevents two windows from running the same project simultaneously.
+- **Global coordination keys:**
+  - `LAST_ACTIVITY_KEY` stores the last persisted activity timestamp (written immediately on start/stop and otherwise throttled to every 30 s). This lets any window detect whether a timer is likely still running after a crash or sleep.
+  - `LAST_PROJECT_KEY` stores the most recent project ID so warnings can reference the real project name.
+  - `OWNS_ACTIVE_SESSION_KEY` lives in `workspaceState` and marks which VS Code window currently owns the active timer. Non-owning windows still load the session for visibility but avoid running the ticker, writing activity, or updating the status bar.
 
 ## 6. Background Ticker & Idle Tracking
 
-- While a timer is active, `Tracker.onTick()` runs every second.
+- While the owning window has a timer active, `Tracker.onTick()` runs every second.
 - Elapsed seconds accumulate in memory only; the JSON snapshot is not mutated every tick. As soon as `stop()` (or disposal during shutdown) runs, the in-memory session is finalized and persisted to the snapshot.
-- If the user is idle for more than five minutes (`idleThreshold`), the ticker pauses updates to avoid falsely extending activity.
-- `lastActivity` timestamps are stored in VS Code's `globalState`, letting the tracker estimate when the last action occurred if VS Code crashes.
+- If the user is idle longer than `idleThreshold` (40 s as of the latest build), the ticker pauses updates to avoid falsely extending activity. Earlier builds used 5 min, so adjust the constant if you need the old behavior.
+- `lastActivity` timestamps are stored in VS Code's `globalState`. They are forced to disk immediately on start/stop and otherwise throttled to every 30 s (`activityPersistInterval`) to reduce disk churn while still giving other windows near-real-time visibility.
 
 ## 7. Status Bar Behavior
 
 - `StatusBar` (`src/statusBar.ts`) creates a VS Code status bar item aligned left with command `tickeroo.showStatusMenu`.
 - When no timer is running it shows `🕒 Tickeroo: idle`. **If the workspace has historical data** (i.e., one or more project snapshot files contain actual time records), the status bar flashes between colors to remind the user that tracking is off. The flasher checks on-disk snapshots at runtime via `storage.projectHasRecords()`, so deleting a project's `.vscode/time-tracker.json` or clearing its records immediately disables flashing.
-- When a session is active it renders `🕑 <task> (HH:MM:SS)` by computing the elapsed time **in memory** every second; stopping the timer is the point where that duration is persisted to the snapshot.
+- When a session is active **and this window owns it** (per `OWNS_ACTIVE_SESSION_KEY`), the status bar renders `🕑 <task> (HH:MM:SS)` by computing the elapsed time **in memory** every second. Non-owning windows stay idle even though the tracker knows another window has a running timer.
 - Clicking the item opens the quick actions menu (start/stop/switch/report) so the entire workflow can be driven from the status bar without using the command palette.
 
 ## 8. Reports (`tickeroo.showReport*`)

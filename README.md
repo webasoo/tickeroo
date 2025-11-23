@@ -10,7 +10,7 @@ Tickeroo is a small VS Code extension to track time spent on local projects and 
   - Right-click context menu for quick actions (rename, delete, show report)
   - Click on projects to start/stop timers or switch tasks
 - **Time Tracking**: Start and stop timers for different tasks within projects
-- **Status Bar Integration**: Quick access to timer controls and status
+- **Status Bar Integration**: Quick access to timer controls and status; only the window that owns the active timer shows the running clock
 - **Reports**: Generate detailed time reports with CSV export
 - **Multi-Window Support**: Safe concurrent usage across multiple VS Code windows with optimistic locking, per-window ownership of the active timer, and shared global-state signals to prevent duplicate starts
 
