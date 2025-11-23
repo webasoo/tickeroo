@@ -500,6 +500,10 @@ async function maybePromptInitialProject(): Promise<void> {
     return;
   }
 
+  if (tracker.getActiveSession()) {
+    return;
+  }
+
   const pick = await pickWorkspaceProject({
     placeHolder: "Select project to track (optional)",
     includeOther: true,
