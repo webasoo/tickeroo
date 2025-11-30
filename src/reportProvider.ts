@@ -188,7 +188,7 @@ export class ReportProvider {
       if (!entry) {
         continue;
       }
-      const snapshot = await this.storage.getProjectSnapshot(entry.path);
+      const snapshot = await this.storage.refreshProjectSnapshot(entry.path);
       const days: ProjectReportDay[] = [];
       for (const [date, record] of Object.entries(snapshot.days ?? {})) {
         if (date < range.start || date > range.end) {
@@ -263,7 +263,9 @@ export class ReportProvider {
     </style></head><body>`);
     parts.push(`<h2>${escapeHtml(report.heading)}</h2>`);
     if (report.range.start === report.range.end) {
-      parts.push(`<p class="range">${report.range.label} — ${report.range.start}</p>`);
+      parts.push(
+        `<p class="range">${report.range.label} — ${report.range.start}</p>`
+      );
     } else {
       parts.push(
         `<p class="range">${report.range.label} — ${report.range.start} to ${report.range.end}</p>`
@@ -276,9 +278,7 @@ export class ReportProvider {
         0
       );
       parts.push(`<h3>${escapeHtml(project.entry.name)}</h3>`);
-      parts.push(
-        `<p class="path">${escapeHtml(project.entry.path)}</p>`
-      );
+      parts.push(`<p class="path">${escapeHtml(project.entry.path)}</p>`);
       parts.push(`<p>Total: ${formatSeconds(totalSeconds)}</p>`);
 
       for (const day of project.days) {
@@ -340,15 +340,16 @@ export class ReportProvider {
   }
 
   private async exportCsv(report: ReportData) {
-    const rows: string[] = [
-      "Project,Date,Task,Start,End,Seconds,Formatted",
-    ];
+    const rows: string[] = ["Project,Date,Task,Start,End,Seconds,Formatted"];
 
     for (const project of report.projects) {
       for (const day of project.days) {
-        const entries = day.record.entries && day.record.entries.length > 0
-          ? [...day.record.entries].sort((a, b) => a.start.localeCompare(b.start))
-          : [];
+        const entries =
+          day.record.entries && day.record.entries.length > 0
+            ? [...day.record.entries].sort((a, b) =>
+                a.start.localeCompare(b.start)
+              )
+            : [];
 
         if (entries.length > 0) {
           for (const entry of entries) {
@@ -358,11 +359,11 @@ export class ReportProvider {
               ? formatSeconds(entry.seconds)
               : "";
             rows.push(
-              `${this.escapeCsv(project.entry.name)},${day.date},${this.escapeCsv(
-                entry.task
-              )},${this.escapeCsv(entry.start)},${this.escapeCsv(
-                endValue
-              )},${secondsValue},${formattedValue}`
+              `${this.escapeCsv(project.entry.name)},${
+                day.date
+              },${this.escapeCsv(entry.task)},${this.escapeCsv(
+                entry.start
+              )},${this.escapeCsv(endValue)},${secondsValue},${formattedValue}`
             );
           }
         } else {
@@ -370,17 +371,19 @@ export class ReportProvider {
           if (tasks.length > 0) {
             for (const [taskName, seconds] of tasks) {
               rows.push(
-                `${this.escapeCsv(project.entry.name)},${day.date},${this.escapeCsv(
-                  taskName
-                )},,,${seconds},${formatSeconds(seconds)}`
+                `${this.escapeCsv(project.entry.name)},${
+                  day.date
+                },${this.escapeCsv(taskName)},,,${seconds},${formatSeconds(
+                  seconds
+                )}`
               );
             }
           } else {
             const total = day.record.totalSeconds || 0;
             rows.push(
-              `${this.escapeCsv(project.entry.name)},${day.date},,,,${total},${formatSeconds(
-                total
-              )}`
+              `${this.escapeCsv(project.entry.name)},${
+                day.date
+              },,,,${total},${formatSeconds(total)}`
             );
           }
         }
@@ -394,11 +397,12 @@ export class ReportProvider {
       return;
     }
 
-    const safeHeading = report.heading
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "report";
+    const safeHeading =
+      report.heading
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40) || "report";
     const defaultFileName = `tickeroo-${safeHeading}-${report.range.start}-${report.range.end}.csv`;
     const workspaceFolders = vscode.workspace.workspaceFolders;
     let defaultUri: vscode.Uri | undefined;
@@ -409,7 +413,10 @@ export class ReportProvider {
       );
     }
     if (!defaultUri) {
-      defaultUri = vscode.Uri.joinPath(this.context.globalStorageUri, defaultFileName);
+      defaultUri = vscode.Uri.joinPath(
+        this.context.globalStorageUri,
+        defaultFileName
+      );
     }
 
     const saveUri = await vscode.window.showSaveDialog({
