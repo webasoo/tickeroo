@@ -411,6 +411,145 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "tickeroo.addManualEntry",
+      async (item: any) => {
+        if (!tracker || !storage) {
+          return;
+        }
+
+        const projectId = item?.project?.id;
+        if (!projectId) {
+          return;
+        }
+
+        const entry = storage.findProjectById(projectId);
+        if (!entry) {
+          return;
+        }
+
+        // Check if project has active timer
+        const session = tracker.getActiveSession();
+        if (session && session.projectId === projectId) {
+          void vscode.window.showWarningMessage(
+            `Cannot add manual entry while timer is running for ${entry.name}. Please stop the timer first.`
+          );
+          return;
+        }
+
+        // Prompt for task name
+        const task = await vscode.window.showInputBox({
+          prompt: "Enter task name",
+          placeHolder: "e.g., Development, Meeting, Bug Fix",
+          ignoreFocusOut: true,
+          validateInput: (value) => {
+            if (!value.trim()) {
+              return "Task name cannot be empty";
+            }
+            return undefined;
+          },
+        });
+
+        if (!task || !task.trim()) {
+          return;
+        }
+
+        // Prompt for date
+        const today = new Date();
+        const defaultDate = `${today.getFullYear()}-${String(
+          today.getMonth() + 1
+        ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+        const date = await vscode.window.showInputBox({
+          prompt: "Enter date (YYYY-MM-DD)",
+          value: defaultDate,
+          placeHolder: "2025-11-30",
+          ignoreFocusOut: true,
+          validateInput: (value) => {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+              return "Date must be in YYYY-MM-DD format";
+            }
+            return undefined;
+          },
+        });
+
+        if (!date) {
+          return;
+        }
+
+        // Prompt for start time
+        const startTime = await vscode.window.showInputBox({
+          prompt: "Enter start time (HH:MM) - 24-hour format",
+          placeHolder: "09:00",
+          ignoreFocusOut: true,
+          validateInput: (value) => {
+            if (!/^\d{1,2}:\d{2}$/.test(value.trim())) {
+              return "Time must be in HH:MM format";
+            }
+            const [h, m] = value.split(":");
+            const hours = Number(h);
+            const minutes = Number(m);
+            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+              return "Invalid time. Hours: 0-23, Minutes: 0-59";
+            }
+            return undefined;
+          },
+        });
+
+        if (!startTime) {
+          return;
+        }
+
+        // Prompt for end time
+        const endTime = await vscode.window.showInputBox({
+          prompt: "Enter end time (HH:MM) - 24-hour format",
+          placeHolder: "17:00",
+          ignoreFocusOut: true,
+          validateInput: (value) => {
+            if (!/^\d{1,2}:\d{2}$/.test(value.trim())) {
+              return "Time must be in HH:MM format";
+            }
+            const [h, m] = value.split(":");
+            const hours = Number(h);
+            const minutes = Number(m);
+            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+              return "Invalid time. Hours: 0-23, Minutes: 0-59";
+            }
+            return undefined;
+          },
+        });
+
+        if (!endTime) {
+          return;
+        }
+
+        // Add manual entry
+        try {
+          await tracker.addManualEntry(
+            projectId,
+            task.trim(),
+            date.trim(),
+            startTime.trim(),
+            endTime.trim()
+          );
+
+          projectsTreeProvider?.refresh();
+
+          void vscode.window.showInformationMessage(
+            `Manual time entry added for ${
+              entry.name
+            }: ${task.trim()} on ${date.trim()}`
+          );
+        } catch (err: any) {
+          void vscode.window.showErrorMessage(
+            `Failed to add manual entry: ${err.message}`
+          );
+        }
+      }
+    )
+  );
+
   // Activity listeners for idle detection
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => tracker?.touchActivity())

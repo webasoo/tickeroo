@@ -594,6 +594,136 @@ export class Tracker {
     await this.refreshIndex();
   }
 
+  async addManualEntry(
+    projectId: string,
+    task: string,
+    date: string,
+    startTime: string,
+    endTime: string
+  ): Promise<void> {
+    const entry = this.projectIndex.get(projectId);
+    if (!entry) {
+      throw new Error(`Unknown project id: ${projectId}`);
+    }
+
+    // Load latest snapshot
+    let snapshot = await this.loadLatestSnapshot(entry);
+
+    // Check if project has active timer
+    if (snapshot.current) {
+      throw new Error(
+        `Cannot add manual entry while timer is running for ${entry.name}. Please stop the timer first.`
+      );
+    }
+
+    // Parse date and times
+    const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!dateMatch) {
+      throw new Error("Invalid date format. Use YYYY-MM-DD");
+    }
+
+    const startMatch = startTime.match(/^(\d{1,2}):(\d{2})$/);
+    if (!startMatch) {
+      throw new Error("Invalid start time format. Use HH:MM");
+    }
+
+    const endMatch = endTime.match(/^(\d{1,2}):(\d{2})$/);
+    if (!endMatch) {
+      throw new Error("Invalid end time format. Use HH:MM");
+    }
+
+    const [, year, month, day] = dateMatch;
+    const [, startHour, startMinute] = startMatch;
+    const [, endHour, endMinute] = endMatch;
+
+    // Validate time values
+    const startH = Number(startHour);
+    const startM = Number(startMinute);
+    const endH = Number(endHour);
+    const endM = Number(endMinute);
+
+    if (
+      startH < 0 ||
+      startH > 23 ||
+      startM < 0 ||
+      startM > 59 ||
+      endH < 0 ||
+      endH > 23 ||
+      endM < 0 ||
+      endM > 59
+    ) {
+      throw new Error("Invalid time values. Hours: 0-23, Minutes: 0-59");
+    }
+
+    // Create date objects
+    const startDate = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      startH,
+      startM,
+      0,
+      0
+    );
+    const endDate = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      endH,
+      endM,
+      0,
+      0
+    );
+
+    // Validate end time is after start time
+    if (endDate.getTime() <= startDate.getTime()) {
+      throw new Error("End time must be after start time");
+    }
+
+    // Calculate duration in seconds
+    const seconds = Math.round(
+      (endDate.getTime() - startDate.getTime()) / 1000
+    );
+
+    // Get or create day record
+    const dayRecord = this.ensureDayRecord(snapshot, date);
+
+    // Create new entry
+    const newEntry: SessionEntry = {
+      task,
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      seconds,
+    };
+
+    // Add entry to day record
+    dayRecord.entries!.push(newEntry);
+
+    // Update totals
+    dayRecord.totalSeconds += seconds;
+    dayRecord.tasks[task] = (dayRecord.tasks[task] || 0) + seconds;
+
+    // Update last task
+    snapshot.lastTask = task;
+
+    // Save snapshot
+    try {
+      await this.storage.saveProjectSnapshot(entry.path, snapshot);
+      this.projectSnapshots.set(entry.id, { ...snapshot });
+      await this.storage.recordActivity(entry.id, date);
+      await this.storage.touchProjectUsage(entry.id, new Date());
+      entry.lastUsed = new Date().toISOString();
+      this.projectIndex.set(entry.id, { ...entry });
+    } catch (err: any) {
+      if (err?.message?.includes("SNAPSHOT_CONFLICT")) {
+        throw new Error(
+          "Another window modified the project. Please try again."
+        );
+      }
+      throw err;
+    }
+  }
+
   async updateProjectPath(projectId: string, newPath: string): Promise<void> {
     await this.storage.updateProjectPath(projectId, newPath);
     await this.refreshIndex();
