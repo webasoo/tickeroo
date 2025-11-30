@@ -451,7 +451,9 @@ function formatSeconds(sec: number) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
-  return `${h}h ${m}m ${s}s`;
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 function escapeHtml(value: string) {

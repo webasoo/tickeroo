@@ -2,7 +2,7 @@
   "name": "tickeroo",
   "displayName": "Tickeroo",
   "description": "Automatically track working time on local projects inside VS Code.",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "publisher": "your-name",
   "engines": {
     "vscode": "^1.60.0"
